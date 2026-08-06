@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Bookmark, Loader2, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { Poster } from "@/components/Poster";
@@ -26,6 +26,7 @@ import {
   removeMovie,
   searchCatalog,
 } from "@/lib/movies.functions";
+import { listRecommendations, setRecommendationStatus } from "@/lib/recommend.functions";
 
 export const Route = createFileRoute("/_authenticated/library")({
   head: () => ({
@@ -135,6 +136,9 @@ function LibraryPage() {
         </div>
       </div>
 
+      <SavedPicks />
+
+
       {movies.length > 8 && (
         <div className="relative mt-6">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -210,7 +214,78 @@ function LibraryPage() {
   );
 }
 
+function SavedPicks() {
+  const queryClient = useQueryClient();
+  const fetchRecs = useServerFn(listRecommendations);
+  const setStatus = useServerFn(setRecommendationStatus);
+  const runAdd = useServerFn(addMovie);
+
+  const recs = useQuery({ queryKey: ["recommendations"], queryFn: () => fetchRecs({}) });
+  const saved = (recs.data ?? []).filter((item) => item.status === "saved");
+
+  if (saved.length === 0) return null;
+
+  return (
+    <section className="mt-8 rounded-2xl border border-border/70 bg-card p-5">
+      <div className="flex items-center gap-2">
+        <Bookmark className="size-4 text-primary" />
+        <h2 className="font-display text-lg font-semibold">Saved picks</h2>
+        <span className="text-sm text-muted-foreground">({saved.length})</span>
+      </div>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Recommendations you kept — mark one as watched to fold it into your library.
+      </p>
+
+      <ul className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+        {saved.map((item) => (
+          <li key={item.id}>
+            <Poster title={item.title} year={item.year} posterUrl={item.poster_url} />
+            <p className="mt-2 truncate text-sm font-medium">{item.title}</p>
+            <p className="text-xs text-muted-foreground">{item.year ?? "—"}</p>
+            <div className="mt-2 flex gap-1">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="h-7 flex-1 px-2 text-xs"
+                onClick={async () => {
+                  await runAdd({
+                    data: {
+                      title: item.title,
+                      year: item.year,
+                      posterUrl: item.poster_url,
+                      imdbId: item.imdb_id,
+                    },
+                  });
+                  await setStatus({ data: { id: item.id, status: "dismissed" } });
+                  toast.success(`${item.title} added to your library`);
+                  void queryClient.invalidateQueries({ queryKey: ["library"] });
+                  void queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+                }}
+              >
+                Watched
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                aria-label={`Remove ${item.title} from saved`}
+                className="h-7 px-2 text-muted-foreground"
+                onClick={async () => {
+                  await setStatus({ data: { id: item.id, status: "dismissed" } });
+                  void queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+                }}
+              >
+                <X className="size-3.5" />
+              </Button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 function ImportDialog({
+
   open,
   onOpenChange,
   pending,

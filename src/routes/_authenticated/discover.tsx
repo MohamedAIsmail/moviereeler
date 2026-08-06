@@ -148,10 +148,15 @@ function DiscoverPage() {
                   </p>
                 )}
 
-                <p className="mt-3 text-sm leading-relaxed text-foreground/90">{item.reason}</p>
+                <p className="mt-3 text-sm leading-relaxed text-foreground/90">
+                  {item.overview ?? item.reason}
+                </p>
 
-                {item.overview && (
-                  <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{item.overview}</p>
+                {item.overview && item.reason && (
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    <span className="font-medium text-primary">Why this pick · </span>
+                    {item.reason}
+                  </p>
                 )}
 
                 <div className="mt-4 flex gap-2">
