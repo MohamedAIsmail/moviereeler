@@ -14,7 +14,114 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id: string
+          updated_at?: string
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      recommendations: {
+        Row: {
+          created_at: string
+          genres: string[] | null
+          id: string
+          imdb_id: string | null
+          match_score: number | null
+          overview: string | null
+          poster_url: string | null
+          reason: string | null
+          status: string
+          title: string
+          user_id: string
+          year: number | null
+        }
+        Insert: {
+          created_at?: string
+          genres?: string[] | null
+          id?: string
+          imdb_id?: string | null
+          match_score?: number | null
+          overview?: string | null
+          poster_url?: string | null
+          reason?: string | null
+          status?: string
+          title: string
+          user_id: string
+          year?: number | null
+        }
+        Update: {
+          created_at?: string
+          genres?: string[] | null
+          id?: string
+          imdb_id?: string | null
+          match_score?: number | null
+          overview?: string | null
+          poster_url?: string | null
+          reason?: string | null
+          status?: string
+          title?: string
+          user_id?: string
+          year?: number | null
+        }
+        Relationships: []
+      }
+      watched_movies: {
+        Row: {
+          created_at: string
+          id: string
+          imdb_id: string | null
+          poster_url: string | null
+          rating: number | null
+          source: string
+          title: string
+          user_id: string
+          watched_on: string | null
+          year: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          imdb_id?: string | null
+          poster_url?: string | null
+          rating?: number | null
+          source?: string
+          title: string
+          user_id: string
+          watched_on?: string | null
+          year?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          imdb_id?: string | null
+          poster_url?: string | null
+          rating?: number | null
+          source?: string
+          title?: string
+          user_id?: string
+          watched_on?: string | null
+          year?: number | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
