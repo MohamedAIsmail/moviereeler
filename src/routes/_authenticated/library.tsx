@@ -135,6 +135,9 @@ function LibraryPage() {
         </div>
       </div>
 
+      <SavedPicks />
+
+
       {movies.length > 8 && (
         <div className="relative mt-6">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
