@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Loader2, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Bookmark, Loader2, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { Poster } from "@/components/Poster";
@@ -26,6 +26,7 @@ import {
   removeMovie,
   searchCatalog,
 } from "@/lib/movies.functions";
+import { listRecommendations, setRecommendationStatus } from "@/lib/recommend.functions";
 
 export const Route = createFileRoute("/_authenticated/library")({
   head: () => ({
