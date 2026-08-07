@@ -67,6 +67,7 @@ function LibraryPage() {
   const runAdd = useServerFn(addMovie);
   const runRate = useServerFn(rateMovie);
   const runRemove = useServerFn(removeMovie);
+  const runClear = useServerFn(clearLibrary);
 
   const [filter, setFilter] = useState("");
   const [importOpen, setImportOpen] = useState(false);
