@@ -64,7 +64,24 @@ export async function searchMovies(query: string, limit = 12): Promise<MovieMeta
   }
 }
 
-/** Best match for a title (+ optional year). */
+/**
+ * Full metadata (synopsis, genres) for an IMDb id.
+ * The search catalog only returns title/poster/year — descriptions live here.
+ */
+export async function getMetaById(imdbId: string): Promise<MovieMeta | null> {
+  try {
+    const res = await fetch(`${CINEMETA}/meta/movie/${encodeURIComponent(imdbId)}.json`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as { meta?: CinemetaMeta };
+    return body.meta ? mapMeta(body.meta) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Best match for a title (+ optional year), enriched with the full synopsis. */
 export async function lookupMovie(title: string, year?: number | null): Promise<MovieMeta | null> {
   const results = await searchMovies(title, 10);
   if (results.length === 0) return null;
@@ -81,7 +98,18 @@ export async function lookupMovie(title: string, year?: number | null): Promise<
   });
 
   scored.sort((a, b) => b.score - a.score);
-  return scored[0]!.score > 0 ? scored[0]!.meta : results[0]!;
+  const best = scored[0]!.score > 0 ? scored[0]!.meta : results[0]!;
+
+  if (!best.imdbId) return best;
+  const full = await getMetaById(best.imdbId);
+  if (!full) return best;
+  return {
+    ...best,
+    overview: full.overview ?? best.overview,
+    genres: full.genres.length ? full.genres : best.genres,
+    year: best.year ?? full.year,
+    posterUrl: best.posterUrl ?? full.posterUrl,
+  };
 }
 
 /** Resolve many titles with bounded concurrency. */
