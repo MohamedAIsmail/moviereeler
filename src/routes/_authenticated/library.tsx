@@ -182,43 +182,15 @@ function LibraryPage() {
       ) : (
         <ul className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {visible.map((movie) => (
-            <li key={movie.id} className="group">
-              <Poster title={movie.title} year={movie.year} posterUrl={movie.poster_url} />
-              <div className="mt-2 flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{movie.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {movie.year ?? "—"}
-                    {movie.rating != null ? ` · ${movie.rating}/10` : ""}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label={`Remove ${movie.title}`}
-                  className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-                  onClick={async () => {
-                    await runRemove({ data: { id: movie.id } });
-                    void queryClient.invalidateQueries({ queryKey: ["library"] });
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={10}
-                step={0.5}
-                aria-label={`Your rating for ${movie.title}`}
-                value={movie.rating ?? 0}
-                onChange={async (event) => {
-                  const rating = Number(event.target.value);
-                  await runRate({ data: { id: movie.id, rating } });
-                  void queryClient.invalidateQueries({ queryKey: ["library"] });
-                }}
-                className="mt-2 h-1 w-full cursor-pointer accent-primary"
-              />
-            </li>
+            <MovieCard
+              key={movie.id}
+              movie={movie}
+              onRate={(rating) => runRate({ data: { id: movie.id, rating } })}
+              onRemove={async () => {
+                await runRemove({ data: { id: movie.id } });
+                void queryClient.invalidateQueries({ queryKey: ["library"] });
+              }}
+            />
           ))}
         </ul>
       )}
