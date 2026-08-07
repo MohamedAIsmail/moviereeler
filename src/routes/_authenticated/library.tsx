@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
@@ -16,9 +16,21 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { parseMovieCsv } from "@/lib/csv";
 import {
   addMovie,
+  clearLibrary,
   enrichPosters,
   importMovies,
   listLibrary,
@@ -55,6 +67,7 @@ function LibraryPage() {
   const runAdd = useServerFn(addMovie);
   const runRate = useServerFn(rateMovie);
   const runRemove = useServerFn(removeMovie);
+  const runClear = useServerFn(clearLibrary);
 
   const [filter, setFilter] = useState("");
   const [importOpen, setImportOpen] = useState(false);
@@ -133,6 +146,37 @@ function LibraryPage() {
             pending={importMutation.isPending}
             onFile={(file) => importMutation.mutate(file)}
           />
+          {movies.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" className="text-destructive hover:text-destructive">
+                  <Trash2 className="size-4" />
+                  Clear all
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Remove every film?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This deletes all {movies.length} films from your library. Recommendations you've
+                    saved stay put. This can't be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={async () => {
+                      await runClear({});
+                      toast.success("Library cleared");
+                      void queryClient.invalidateQueries({ queryKey: ["library"] });
+                    }}
+                  >
+                    Delete everything
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 
@@ -170,49 +214,99 @@ function LibraryPage() {
       ) : (
         <ul className="mt-6 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
           {visible.map((movie) => (
-            <li key={movie.id} className="group">
-              <Poster title={movie.title} year={movie.year} posterUrl={movie.poster_url} />
-              <div className="mt-2 flex items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{movie.title}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {movie.year ?? "—"}
-                    {movie.rating != null ? ` · ${movie.rating}/10` : ""}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  aria-label={`Remove ${movie.title}`}
-                  className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
-                  onClick={async () => {
-                    await runRemove({ data: { id: movie.id } });
-                    void queryClient.invalidateQueries({ queryKey: ["library"] });
-                  }}
-                >
-                  <Trash2 className="size-4" />
-                </button>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={10}
-                step={0.5}
-                aria-label={`Your rating for ${movie.title}`}
-                value={movie.rating ?? 0}
-                onChange={async (event) => {
-                  const rating = Number(event.target.value);
-                  await runRate({ data: { id: movie.id, rating } });
-                  void queryClient.invalidateQueries({ queryKey: ["library"] });
-                }}
-                className="mt-2 h-1 w-full cursor-pointer accent-primary"
-              />
-            </li>
+            <MovieCard
+              key={movie.id}
+              movie={movie}
+              onRate={(rating) => runRate({ data: { id: movie.id, rating } })}
+              onRemove={async () => {
+                await runRemove({ data: { id: movie.id } });
+                void queryClient.invalidateQueries({ queryKey: ["library"] });
+              }}
+            />
           ))}
         </ul>
       )}
     </AppShell>
   );
 }
+
+interface LibraryMovie {
+  id: string;
+  title: string;
+  year: number | null;
+  rating: number | null;
+  poster_url: string | null;
+}
+
+/** Slider stays fully local while dragging and saves once the user pauses. */
+function MovieCard({
+  movie,
+  onRate,
+  onRemove,
+}: {
+  movie: LibraryMovie;
+  onRate: (rating: number) => Promise<unknown>;
+  onRemove: () => void | Promise<void>;
+}) {
+  const [rating, setRating] = useState(movie.rating ?? 0);
+  const dirty = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Adopt server value again unless the user is mid-edit.
+  useEffect(() => {
+    if (!dirty.current) setRating(movie.rating ?? 0);
+  }, [movie.rating]);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  return (
+    <li className="group">
+      <Poster title={movie.title} year={movie.year} posterUrl={movie.poster_url} />
+      <div className="mt-2 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{movie.title}</p>
+          <p className="text-xs text-muted-foreground">
+            {movie.year ?? "—"}
+            {rating > 0 ? ` · ${rating}/10` : ""}
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-label={`Remove ${movie.title}`}
+          className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+          onClick={() => void onRemove()}
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={10}
+        step={0.5}
+        aria-label={`Your rating for ${movie.title}`}
+        value={rating}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          dirty.current = true;
+          setRating(next);
+          if (timer.current) clearTimeout(timer.current);
+          timer.current = setTimeout(() => {
+            void onRate(next).finally(() => {
+              dirty.current = false;
+            });
+          }, 400);
+        }}
+        className="mt-2 h-1 w-full cursor-pointer accent-primary"
+      />
+    </li>
+  );
+}
+
 
 function SavedPicks() {
   const queryClient = useQueryClient();

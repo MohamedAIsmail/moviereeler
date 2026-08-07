@@ -55,11 +55,11 @@ function findIndex(headers: string[], candidates: string[]): number {
   return headers.findIndex((header) => candidates.includes(header));
 }
 
-/** Letterboxd ratings are 0–5 stars; everything else is treated as 0–10. */
-function normalizeRating(raw: string, isLetterboxd: boolean): number | null {
+/** Letterboxd ratings are 0–5 stars; IMDb and most others are already 0–10. */
+function normalizeRating(raw: string, doubleScale: boolean): number | null {
   const value = Number(raw);
   if (!raw.trim() || Number.isNaN(value)) return null;
-  const scaled = isLetterboxd || value <= 5 ? value * 2 : value;
+  const scaled = doubleScale ? value * 2 : value;
   return Math.min(10, Math.max(0, Math.round(scaled * 10) / 10));
 }
 
@@ -70,11 +70,14 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
   const headers = table[0]!.map((header) => header.trim().toLowerCase());
   const titleIndex = findIndex(headers, ["name", "title", "film", "movie"]);
   const yearIndex = findIndex(headers, ["year", "release year"]);
-  const ratingIndex = findIndex(headers, ["rating", "your rating", "score"]);
-  const dateIndex = findIndex(headers, ["watched date", "date", "date watched"]);
+  const ratingIndex = findIndex(headers, ["your rating", "rating", "score"]);
+  const dateIndex = findIndex(headers, ["watched date", "date rated", "date", "date watched"]);
   const isLetterboxd = headers.includes("letterboxd uri");
+  // IMDb exports rate 1–10 already; Letterboxd uses 0–5 stars.
+  const doubleScale = isLetterboxd;
 
   if (titleIndex === -1) return { rows: [], skipped: table.length - 1 };
+
 
   const seen = new Set<string>();
   const rows: ParsedRow[] = [];
@@ -101,7 +104,7 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
     rows.push({
       title: title.slice(0, 300),
       year,
-      rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", isLetterboxd) : null,
+      rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", doubleScale) : null,
       watchedOn: /^\d{4}-\d{2}-\d{2}/.test(dateRaw) ? dateRaw.slice(0, 10) : null,
     });
   }
