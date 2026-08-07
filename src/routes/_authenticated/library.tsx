@@ -145,6 +145,37 @@ function LibraryPage() {
             pending={importMutation.isPending}
             onFile={(file) => importMutation.mutate(file)}
           />
+          {movies.length > 0 && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="ghost" className="text-destructive hover:text-destructive">
+                  <Trash2 className="size-4" />
+                  Clear all
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Remove every film?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This deletes all {movies.length} films from your library. Recommendations you've
+                    saved stay put. This can't be undone.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    onClick={async () => {
+                      await runClear({});
+                      toast.success("Library cleared");
+                      void queryClient.invalidateQueries({ queryKey: ["library"] });
+                    }}
+                  >
+                    Delete everything
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </div>
 
