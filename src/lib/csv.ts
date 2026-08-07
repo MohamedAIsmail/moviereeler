@@ -55,11 +55,11 @@ function findIndex(headers: string[], candidates: string[]): number {
   return headers.findIndex((header) => candidates.includes(header));
 }
 
-/** Letterboxd ratings are 0–5 stars; everything else is treated as 0–10. */
-function normalizeRating(raw: string, isLetterboxd: boolean): number | null {
+/** Letterboxd ratings are 0–5 stars; IMDb and most others are already 0–10. */
+function normalizeRating(raw: string, doubleScale: boolean): number | null {
   const value = Number(raw);
   if (!raw.trim() || Number.isNaN(value)) return null;
-  const scaled = isLetterboxd || value <= 5 ? value * 2 : value;
+  const scaled = doubleScale ? value * 2 : value;
   return Math.min(10, Math.max(0, Math.round(scaled * 10) / 10));
 }
 
