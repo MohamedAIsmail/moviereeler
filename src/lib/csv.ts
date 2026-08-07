@@ -70,11 +70,14 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
   const headers = table[0]!.map((header) => header.trim().toLowerCase());
   const titleIndex = findIndex(headers, ["name", "title", "film", "movie"]);
   const yearIndex = findIndex(headers, ["year", "release year"]);
-  const ratingIndex = findIndex(headers, ["rating", "your rating", "score"]);
-  const dateIndex = findIndex(headers, ["watched date", "date", "date watched"]);
+  const ratingIndex = findIndex(headers, ["your rating", "rating", "score"]);
+  const dateIndex = findIndex(headers, ["watched date", "date rated", "date", "date watched"]);
   const isLetterboxd = headers.includes("letterboxd uri");
+  // IMDb exports rate 1–10 already; Letterboxd uses 0–5 stars.
+  const doubleScale = isLetterboxd;
 
   if (titleIndex === -1) return { rows: [], skipped: table.length - 1 };
+
 
   const seen = new Set<string>();
   const rows: ParsedRow[] = [];
