@@ -198,6 +198,84 @@ function LibraryPage() {
   );
 }
 
+interface LibraryMovie {
+  id: string;
+  title: string;
+  year: number | null;
+  rating: number | null;
+  poster_url: string | null;
+}
+
+/** Slider stays fully local while dragging and saves once the user pauses. */
+function MovieCard({
+  movie,
+  onRate,
+  onRemove,
+}: {
+  movie: LibraryMovie;
+  onRate: (rating: number) => Promise<unknown>;
+  onRemove: () => void | Promise<void>;
+}) {
+  const [rating, setRating] = useState(movie.rating ?? 0);
+  const dirty = useRef(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Adopt server value again unless the user is mid-edit.
+  useEffect(() => {
+    if (!dirty.current) setRating(movie.rating ?? 0);
+  }, [movie.rating]);
+
+  useEffect(() => {
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, []);
+
+  return (
+    <li className="group">
+      <Poster title={movie.title} year={movie.year} posterUrl={movie.poster_url} />
+      <div className="mt-2 flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <p className="truncate text-sm font-medium">{movie.title}</p>
+          <p className="text-xs text-muted-foreground">
+            {movie.year ?? "—"}
+            {rating > 0 ? ` · ${rating}/10` : ""}
+          </p>
+        </div>
+        <button
+          type="button"
+          aria-label={`Remove ${movie.title}`}
+          className="text-muted-foreground opacity-0 transition-opacity hover:text-destructive focus-visible:opacity-100 group-hover:opacity-100"
+          onClick={() => void onRemove()}
+        >
+          <Trash2 className="size-4" />
+        </button>
+      </div>
+      <input
+        type="range"
+        min={0}
+        max={10}
+        step={0.5}
+        aria-label={`Your rating for ${movie.title}`}
+        value={rating}
+        onChange={(event) => {
+          const next = Number(event.target.value);
+          dirty.current = true;
+          setRating(next);
+          if (timer.current) clearTimeout(timer.current);
+          timer.current = setTimeout(() => {
+            void onRate(next).finally(() => {
+              dirty.current = false;
+            });
+          }, 400);
+        }}
+        className="mt-2 h-1 w-full cursor-pointer accent-primary"
+      />
+    </li>
+  );
+}
+
+
 function SavedPicks() {
   const queryClient = useQueryClient();
   const fetchRecs = useServerFn(listRecommendations);
