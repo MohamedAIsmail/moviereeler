@@ -14,7 +14,35 @@ export const listRecommendations = createServerFn({ method: "GET" })
       .order("match_score", { ascending: false, nullsFirst: false })
       .limit(60);
     if (error) throw new Error(error.message);
-    return data ?? [];
+    const rows = data ?? [];
+
+    // Backfill synopses/genres for rows saved before metadata lookup existed.
+    const missing = rows.filter((row) => !row.overview).slice(0, 12);
+    if (missing.length) {
+      const { lookupMany } = await import("./movie-meta.server");
+      const metas = await lookupMany(missing.map((r) => ({ title: r.title, year: r.year })));
+      await Promise.all(
+        missing.map(async (row, index) => {
+          const meta = metas[index];
+          if (!meta?.overview) return;
+          row.overview = meta.overview;
+          row.genres = meta.genres.length ? meta.genres : row.genres;
+          row.poster_url = row.poster_url ?? meta.posterUrl;
+          await context.supabase
+            .from("recommendations")
+            .update({
+              overview: meta.overview,
+              genres: row.genres,
+              poster_url: row.poster_url,
+              imdb_id: row.imdb_id ?? meta.imdbId,
+            })
+            .eq("id", row.id)
+            .eq("user_id", context.userId);
+        }),
+      );
+    }
+
+    return rows;
   });
 
 export const generateRecommendations = createServerFn({ method: "POST" })
