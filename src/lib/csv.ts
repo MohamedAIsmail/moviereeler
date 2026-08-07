@@ -104,7 +104,7 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
     rows.push({
       title: title.slice(0, 300),
       year,
-      rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", isLetterboxd) : null,
+      rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", doubleScale) : null,
       watchedOn: /^\d{4}-\d{2}-\d{2}/.test(dateRaw) ? dateRaw.slice(0, 10) : null,
     });
   }
