@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { lookupMany } from "./movie-meta.server";
+import { lookupMany, type MediaType } from "./movie-meta.server";
 import type { ImportRow } from "./movies.schema";
 
 type Client = SupabaseClient<Database>;
@@ -11,11 +11,14 @@ function key(title: string, year: number | null | undefined) {
   return `${title.trim().toLowerCase()}|${year ?? ""}`;
 }
 
-export async function fetchLibrary(supabase: Client, userId: string): Promise<WatchedMovie[]> {
-  const { data, error } = await supabase
-    .from("watched_movies")
-    .select("*")
-    .eq("user_id", userId)
+export async function fetchLibrary(
+  supabase: Client,
+  userId: string,
+  mediaType?: MediaType,
+): Promise<WatchedMovie[]> {
+  let query = supabase.from("watched_movies").select("*").eq("user_id", userId);
+  if (mediaType) query = query.eq("media_type", mediaType);
+  const { data, error } = await query
     .order("rating", { ascending: false, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(2000);
@@ -28,8 +31,9 @@ export async function insertLibraryRows(
   userId: string,
   rows: ImportRow[],
   source: string,
+  mediaType: MediaType = "movie",
 ): Promise<{ imported: number; duplicates: number }> {
-  const existing = await fetchLibrary(supabase, userId);
+  const existing = await fetchLibrary(supabase, userId, mediaType);
   const seen = new Set(existing.map((row) => key(row.title, row.year)));
 
   const fresh: Database["public"]["Tables"]["watched_movies"]["Insert"][] = [];
@@ -48,6 +52,7 @@ export async function insertLibraryRows(
       year: row.year ?? null,
       rating: row.rating ?? null,
       watched_on: row.watchedOn ?? null,
+      media_type: mediaType,
       source,
     });
   }
@@ -68,7 +73,7 @@ export async function enrichLibraryPosters(
 ): Promise<{ updated: number; remaining: number }> {
   const { data, error } = await supabase
     .from("watched_movies")
-    .select("id, title, year")
+    .select("id, title, year, media_type")
     .eq("user_id", userId)
     .is("poster_url", null)
     .limit(batchSize);
@@ -77,7 +82,13 @@ export async function enrichLibraryPosters(
   const pending = data ?? [];
   if (pending.length === 0) return { updated: 0, remaining: 0 };
 
-  const metas = await lookupMany(pending.map((row) => ({ title: row.title, year: row.year })));
+  const metas = await lookupMany(
+    pending.map((row) => ({
+      title: row.title,
+      year: row.year,
+      type: (row.media_type === "series" ? "series" : "movie") as MediaType,
+    })),
+  );
 
   let updated = 0;
   await Promise.all(

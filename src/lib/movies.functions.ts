@@ -4,15 +4,17 @@ import {
   AddMovieSchema,
   IdSchema,
   ImportPayloadSchema,
+  MediaTypePayloadSchema,
   RatingSchema,
   SearchSchema,
 } from "./movies.schema";
 
 export const listLibrary = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((input: unknown) => MediaTypePayloadSchema.parse(input ?? {}))
+  .handler(async ({ data, context }) => {
     const { fetchLibrary } = await import("./movies.server");
-    return fetchLibrary(context.supabase, context.userId);
+    return fetchLibrary(context.supabase, context.userId, data.mediaType);
   });
 
 export const importMovies = createServerFn({ method: "POST" })
@@ -20,7 +22,7 @@ export const importMovies = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => ImportPayloadSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { insertLibraryRows } = await import("./movies.server");
-    return insertLibraryRows(context.supabase, context.userId, data.rows, "csv");
+    return insertLibraryRows(context.supabase, context.userId, data.rows, "csv", data.mediaType);
   });
 
 export const addMovie = createServerFn({ method: "POST" })
@@ -34,6 +36,7 @@ export const addMovie = createServerFn({ method: "POST" })
       rating: data.rating ?? null,
       poster_url: data.posterUrl ?? null,
       imdb_id: data.imdbId ?? null,
+      media_type: data.mediaType,
       source: "manual",
     });
     if (error) throw new Error(error.message);
@@ -68,11 +71,13 @@ export const removeMovie = createServerFn({ method: "POST" })
 
 export const clearLibrary = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
-  .handler(async ({ context }) => {
+  .inputValidator((input: unknown) => MediaTypePayloadSchema.parse(input ?? {}))
+  .handler(async ({ data, context }) => {
     const { error } = await context.supabase
       .from("watched_movies")
       .delete()
-      .eq("user_id", context.userId);
+      .eq("user_id", context.userId)
+      .eq("media_type", data.mediaType);
     if (error) throw new Error(error.message);
     return { ok: true };
   });
@@ -89,5 +94,5 @@ export const searchCatalog = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => SearchSchema.parse(input))
   .handler(async ({ data }) => {
     const { searchMovies } = await import("./movie-meta.server");
-    return searchMovies(data.query, 10);
+    return searchMovies(data.query, 10, data.mediaType);
   });
