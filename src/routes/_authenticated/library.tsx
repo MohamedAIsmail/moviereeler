@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Bookmark, Loader2, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
+import { MediaToggle, type MediaType, copyFor } from "@/components/MediaToggle";
 import { Poster } from "@/components/Poster";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,12 +47,12 @@ export const Route = createFileRoute("/_authenticated/library")({
       { title: "Your library · Reeler" },
       {
         name: "description",
-        content: "Every film you've logged, imported from Letterboxd or added by hand.",
+        content: "Every film and series you've logged, imported from a CSV or added by hand.",
       },
       { property: "og:title", content: "Your library · Reeler" },
       {
         property: "og:description",
-        content: "Every film you've logged, imported from Letterboxd or added by hand.",
+        content: "Every film and series you've logged, imported from a CSV or added by hand.",
       },
     ],
   }),
@@ -69,11 +70,16 @@ function LibraryPage() {
   const runRemove = useServerFn(removeMovie);
   const runClear = useServerFn(clearLibrary);
 
+  const [mediaType, setMediaType] = useState<MediaType>("movie");
+  const copy = copyFor(mediaType);
   const [filter, setFilter] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
 
-  const library = useQuery({ queryKey: ["library"], queryFn: () => fetchLibrary({}) });
+  const library = useQuery({
+    queryKey: ["library", mediaType],
+    queryFn: () => fetchLibrary({ data: { mediaType } }),
+  });
   const movies = library.data ?? [];
 
   // Progressively fill in missing posters, a batch at a time.
@@ -97,15 +103,15 @@ function LibraryPage() {
       const text = await file.text();
       const { rows, skipped } = parseMovieCsv(text);
       if (rows.length === 0) {
-        throw new Error("No movie titles found. The file needs a Name or Title column.");
+        throw new Error("No titles found. The file needs a Name or Title column.");
       }
-      const result = await runImport({ data: { rows } });
+      const result = await runImport({ data: { rows, mediaType } });
       return { ...result, skipped };
     },
     onSuccess: (result) => {
       setImportOpen(false);
       toast.success(
-        `Imported ${result.imported} films` +
+        `Imported ${result.imported} ${copy.plural}` +
           (result.duplicates ? ` · ${result.duplicates} already in your library` : ""),
       );
       void queryClient.invalidateQueries({ queryKey: ["library"] });
@@ -123,24 +129,26 @@ function LibraryPage() {
         <div>
           <h1 className="font-display text-3xl font-bold sm:text-4xl">Your library</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {movies.length} film{movies.length === 1 ? "" : "s"} logged — the raw material for every
-            recommendation.
+            {movies.length} {movies.length === 1 ? copy.singular : copy.plural} logged — the raw
+            material for every recommendation.
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <AddMovieDialog
+            mediaType={mediaType}
             open={addOpen}
             onOpenChange={setAddOpen}
-            onSearch={(query) => runSearch({ data: { query } })}
+            onSearch={(query) => runSearch({ data: { query, mediaType } })}
             onAdd={async (movie) => {
-              await runAdd({ data: movie });
+              await runAdd({ data: { ...movie, mediaType } });
               setAddOpen(false);
               toast.success(`${movie.title} added`);
               void queryClient.invalidateQueries({ queryKey: ["library"] });
             }}
           />
           <ImportDialog
+            mediaType={mediaType}
             open={importOpen}
             onOpenChange={setImportOpen}
             pending={importMutation.isPending}
@@ -156,18 +164,19 @@ function LibraryPage() {
               </AlertDialogTrigger>
               <AlertDialogContent>
                 <AlertDialogHeader>
-                  <AlertDialogTitle>Remove every film?</AlertDialogTitle>
+                  <AlertDialogTitle>Remove every {copy.singular}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This deletes all {movies.length} films from your library. Recommendations you've
-                    saved stay put. This can't be undone.
+                    This deletes all {movies.length} {copy.plural} from your library. Your{" "}
+                    {mediaType === "movie" ? "series" : "movies"} and saved picks stay put. This
+                    can't be undone.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
                   <AlertDialogCancel>Cancel</AlertDialogCancel>
                   <AlertDialogAction
                     onClick={async () => {
-                      await runClear({});
-                      toast.success("Library cleared");
+                      await runClear({ data: { mediaType } });
+                      toast.success(`${copy.label} cleared`);
                       void queryClient.invalidateQueries({ queryKey: ["library"] });
                     }}
                   >
@@ -180,8 +189,11 @@ function LibraryPage() {
         </div>
       </div>
 
-      <SavedPicks />
+      <div className="mt-6">
+        <MediaToggle value={mediaType} onChange={setMediaType} />
+      </div>
 
+      <SavedPicks mediaType={mediaType} />
 
       {movies.length > 8 && (
         <div className="relative mt-6">
@@ -189,7 +201,7 @@ function LibraryPage() {
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder="Filter your library"
+            placeholder={`Filter your ${copy.plural}`}
             className="pl-9"
           />
         </div>
@@ -201,14 +213,14 @@ function LibraryPage() {
         </div>
       ) : movies.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-dashed border-border p-10 text-center">
-          <h2 className="font-display text-lg font-semibold">Nothing logged yet</h2>
+          <h2 className="font-display text-lg font-semibold">No {copy.plural} logged yet</h2>
           <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-            Import your Letterboxd export (or any CSV with a title, year and rating column) and the
+            Import a CSV export (title, year and rating columns) or add {copy.plural} by hand — the
             engine gets to work immediately.
           </p>
           <Button className="mt-6" onClick={() => setImportOpen(true)}>
             <Upload className="size-4" />
-            Import movies
+            Import {copy.plural}
           </Button>
         </div>
       ) : (
@@ -307,14 +319,17 @@ function MovieCard({
   );
 }
 
-
-function SavedPicks() {
+function SavedPicks({ mediaType }: { mediaType: MediaType }) {
   const queryClient = useQueryClient();
   const fetchRecs = useServerFn(listRecommendations);
   const setStatus = useServerFn(setRecommendationStatus);
   const runAdd = useServerFn(addMovie);
+  const copy = copyFor(mediaType);
 
-  const recs = useQuery({ queryKey: ["recommendations"], queryFn: () => fetchRecs({}) });
+  const recs = useQuery({
+    queryKey: ["recommendations", mediaType],
+    queryFn: () => fetchRecs({ data: { mediaType } }),
+  });
   const saved = (recs.data ?? []).filter((item) => item.status === "saved");
 
   if (saved.length === 0) return null;
@@ -323,7 +338,7 @@ function SavedPicks() {
     <section className="mt-8 rounded-2xl border border-border/70 bg-card p-5">
       <div className="flex items-center gap-2">
         <Bookmark className="size-4 text-primary" />
-        <h2 className="font-display text-lg font-semibold">Saved picks</h2>
+        <h2 className="font-display text-lg font-semibold">Saved {copy.label.toLowerCase()}</h2>
         <span className="text-sm text-muted-foreground">({saved.length})</span>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
@@ -348,6 +363,7 @@ function SavedPicks() {
                       year: item.year,
                       posterUrl: item.poster_url,
                       imdbId: item.imdb_id,
+                      mediaType,
                     },
                   });
                   await setStatus({ data: { id: item.id, status: "dismissed" } });
@@ -379,17 +395,19 @@ function SavedPicks() {
 }
 
 function ImportDialog({
-
+  mediaType,
   open,
   onOpenChange,
   pending,
   onFile,
 }: {
+  mediaType: MediaType;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
   onFile: (file: File) => void;
 }) {
+  const copy = copyFor(mediaType);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
@@ -400,10 +418,10 @@ function ImportDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Import your movies</DialogTitle>
+          <DialogTitle>Import your {copy.plural}</DialogTitle>
           <DialogDescription>
-            Drop in a Letterboxd export (watched.csv or ratings.csv) or any CSV with Name/Title,
-            Year and Rating columns. Star ratings are converted to a 10-point scale automatically.
+            Drop in an IMDb or Letterboxd export, or any CSV with Name/Title, Year and Rating
+            columns. Rows are added to your {copy.label.toLowerCase()} list.
           </DialogDescription>
         </DialogHeader>
 
@@ -416,7 +434,7 @@ function ImportDialog({
           <span className="text-sm font-medium">
             {pending ? "Importing…" : "Choose a CSV file"}
           </span>
-          <span className="text-xs text-muted-foreground">Up to 4,000 films per import</span>
+          <span className="text-xs text-muted-foreground">Up to 4,000 rows per import</span>
           <input
             type="file"
             accept=".csv,text/csv"
@@ -442,11 +460,13 @@ interface CatalogResult {
 }
 
 function AddMovieDialog({
+  mediaType,
   open,
   onOpenChange,
   onSearch,
   onAdd,
 }: {
+  mediaType: MediaType;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSearch: (query: string) => Promise<CatalogResult[]>;
@@ -457,9 +477,15 @@ function AddMovieDialog({
     imdbId: string | null;
   }) => Promise<void>;
 }) {
+  const copy = copyFor(mediaType);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CatalogResult[]>([]);
   const [searching, setSearching] = useState(false);
+
+  // Searching a different catalogue should not show stale hits.
+  useEffect(() => {
+    setResults([]);
+  }, [mediaType]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -477,20 +503,22 @@ function AddMovieDialog({
       <DialogTrigger asChild>
         <Button variant="secondary">
           <Plus className="size-4" />
-          Add film
+          Add {copy.singular}
         </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Add a film</DialogTitle>
-          <DialogDescription>Search the catalogue and add it to your library.</DialogDescription>
+          <DialogTitle>Add a {copy.singular}</DialogTitle>
+          <DialogDescription>
+            Search the {copy.label.toLowerCase()} catalogue and add it to your library.
+          </DialogDescription>
         </DialogHeader>
 
         <form onSubmit={submit} className="flex gap-2">
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="e.g. In the Mood for Love"
+            placeholder={mediaType === "series" ? "e.g. The Leftovers" : "e.g. In the Mood for Love"}
           />
           <Button type="submit" disabled={searching}>
             {searching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
