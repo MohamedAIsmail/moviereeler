@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { lookupMany } from "./movie-meta.server";
+import { lookupMany, type MediaType } from "./movie-meta.server";
 import { fetchLibrary, type WatchedMovie } from "./movies.server";
 
 type Client = SupabaseClient<Database>;
@@ -48,14 +48,20 @@ export function buildTasteProfile(library: WatchedMovie[]): TasteProfile {
   };
 }
 
-function buildPrompt(profile: TasteProfile, exclude: string[], mood: string | null) {
+function buildPrompt(
+  profile: TasteProfile,
+  exclude: string[],
+  mood: string | null,
+  mediaType: MediaType,
+) {
+  const noun = mediaType === "series" ? "TV series" : "films";
   const section = (title: string, movies: WatchedMovie[]) =>
     movies.length ? `${title}:\n${movies.map((m) => `- ${label(m)}`).join("\n")}` : "";
 
   return [
-    `The viewer has logged ${profile.total} films.` +
+    `The viewer has logged ${profile.total} ${noun}.` +
       (profile.averageRating != null
-        ? ` Their average rating is ${profile.averageRating}/10 — calibrate: a "good" film for them is above that number.`
+        ? ` Their average rating is ${profile.averageRating}/10 — calibrate: a "good" title for them is above that number.`
         : ""),
     profile.decades.length
       ? `Decade distribution: ${profile.decades.map((d) => `${d.decade} (${d.count})`).join(", ")}.`
@@ -65,6 +71,7 @@ function buildPrompt(profile: TasteProfile, exclude: string[], mood: string | nu
     section("DISLIKED (avoid these qualities)", profile.disliked),
     section("RECENTLY WATCHED (current mood)", profile.recent),
     mood ? `The viewer is specifically in the mood for: "${mood}". Weight this heavily.` : "",
+    `Recommend ONLY ${mediaType === "series" ? "television series (no feature films)" : "feature films (no television series)"}.`,
     exclude.length
       ? `NEVER recommend any of these — already seen or already suggested:\n${exclude.join(", ")}`
       : "",
@@ -73,18 +80,22 @@ function buildPrompt(profile: TasteProfile, exclude: string[], mood: string | nu
     .join("\n\n");
 }
 
-const SYSTEM_PROMPT = `You are the most perceptive film curator alive — part critic, part programmer of a repertory cinema.
+function systemPrompt(mediaType: MediaType) {
+  const noun = mediaType === "series" ? "series" : "film";
+  return `You are the most perceptive ${mediaType === "series" ? "television" : "film"} curator alive — part critic, part programmer of a repertory ${mediaType === "series" ? "channel" : "cinema"}.
 
 Method (follow strictly):
-1. Infer the viewer's underlying taste VECTORS from their ratings, not surface genres: tone, pacing, moral ambiguity, visual style, era affinity, director/writer signatures, national cinemas, structural risk-taking, emotional register.
+1. Infer the viewer's underlying taste VECTORS from their ratings, not surface genres: tone, pacing, moral ambiguity, visual style, era affinity, creator/writer signatures, national ${mediaType === "series" ? "television" : "cinemas"}, structural risk-taking, emotional register.
 2. Pay close attention to what they rated LOW — those are anti-signals. Never recommend something that shares the disliked qualities.
 3. Contrast their ratings against the general consensus. Where they diverge from popular opinion, that divergence is the most valuable signal you have.
-4. Build a slate, not a list. Roughly: 5 high-confidence bullseyes, 4 adjacent discoveries they likely haven't considered, and 3 genuine stretches that follow one strong thread of their taste. Avoid obvious blockbusters unless their profile clearly points there.
-5. No franchise filler, no padding with the same director more than twice, and never recommend a film in the exclusion list.
+4. Build a slate, not a list. Roughly: 5 high-confidence bullseyes, 4 adjacent discoveries they likely haven't considered, and 3 genuine stretches that follow one strong thread of their taste. Avoid obvious mass-market ${noun}s unless their profile clearly points there.
+5. No franchise filler, no padding with the same creator more than twice, and never recommend a title in the exclusion list.
+6. Recommend ONLY ${mediaType === "series" ? "TV series" : "feature films"}. The "year" is the first-release year.
 
-For each pick, the "reason" must name at least one specific film from THEIR list and explain the concrete connection (a shared director sensibility, a structural echo, a tonal match) in 1-2 sharp sentences. Never write generic copy like "if you like thrillers you'll love this".
+For each pick, the "reason" must name at least one specific title from THEIR list and explain the concrete connection in 1-2 sharp sentences. Never write generic copy.
 
 matchScore is your honest confidence from 60-99. Do not inflate — the stretches should score lower than the bullseyes.`;
+}
 
 interface RawRecommendation {
   title: string;
@@ -97,6 +108,7 @@ export async function generateSlate(
   profile: TasteProfile,
   exclude: string[],
   mood: string | null,
+  mediaType: MediaType = "movie",
 ): Promise<RawRecommendation[]> {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new Error("AI is not configured for this project.");
@@ -110,8 +122,8 @@ export async function generateSlate(
     body: JSON.stringify({
       model: "google/gemini-3.6-flash",
       messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildPrompt(profile, exclude, mood) },
+        { role: "system", content: systemPrompt(mediaType) },
+        { role: "user", content: buildPrompt(profile, exclude, mood, mediaType) },
       ],
       response_format: {
         type: "json_schema",
@@ -161,16 +173,22 @@ export async function refreshRecommendations(
   supabase: Client,
   userId: string,
   mood: string | null,
+  mediaType: MediaType = "movie",
 ) {
-  const library = await fetchLibrary(supabase, userId);
+  const library = await fetchLibrary(supabase, userId, mediaType);
   if (library.length < 3) {
-    throw new Error("Add at least 3 films to your library first — the engine needs signal.");
+    throw new Error(
+      mediaType === "series"
+        ? "Add at least 3 series to your library first — the engine needs signal."
+        : "Add at least 3 films to your library first — the engine needs signal.",
+    );
   }
 
   const { data: previous } = await supabase
     .from("recommendations")
     .select("title, year, status")
     .eq("user_id", userId)
+    .eq("media_type", mediaType)
     .limit(200);
 
   const exclude = [
@@ -181,12 +199,19 @@ export async function refreshRecommendations(
   ].slice(0, 700);
 
   const profile = buildTasteProfile(library);
-  const slate = await generateSlate(profile, exclude, mood);
+  const slate = await generateSlate(profile, exclude, mood, mediaType);
   if (slate.length === 0) throw new Error("The engine returned nothing — please try again.");
 
-  const metas = await lookupMany(slate.map((item) => ({ title: item.title, year: item.year })));
+  const metas = await lookupMany(
+    slate.map((item) => ({ title: item.title, year: item.year, type: mediaType })),
+  );
 
-  await supabase.from("recommendations").delete().eq("user_id", userId).eq("status", "new");
+  await supabase
+    .from("recommendations")
+    .delete()
+    .eq("user_id", userId)
+    .eq("status", "new")
+    .eq("media_type", mediaType);
 
   const rows = slate.map((item, index) => {
     const meta = metas[index];
@@ -200,6 +225,7 @@ export async function refreshRecommendations(
       overview: meta?.overview ?? null,
       genres: meta?.genres ?? [],
       imdb_id: meta?.imdbId ?? null,
+      media_type: mediaType,
       status: "new",
     };
   });
