@@ -45,6 +45,7 @@ export type Database = {
           id: string
           imdb_id: string | null
           match_score: number | null
+          media_type: string
           overview: string | null
           poster_url: string | null
           reason: string | null
@@ -59,6 +60,7 @@ export type Database = {
           id?: string
           imdb_id?: string | null
           match_score?: number | null
+          media_type?: string
           overview?: string | null
           poster_url?: string | null
           reason?: string | null
@@ -73,6 +75,7 @@ export type Database = {
           id?: string
           imdb_id?: string | null
           match_score?: number | null
+          media_type?: string
           overview?: string | null
           poster_url?: string | null
           reason?: string | null
@@ -88,6 +91,7 @@ export type Database = {
           created_at: string
           id: string
           imdb_id: string | null
+          media_type: string
           poster_url: string | null
           rating: number | null
           source: string
@@ -100,6 +104,7 @@ export type Database = {
           created_at?: string
           id?: string
           imdb_id?: string | null
+          media_type?: string
           poster_url?: string | null
           rating?: number | null
           source?: string
@@ -112,6 +117,7 @@ export type Database = {
           created_at?: string
           id?: string
           imdb_id?: string | null
+          media_type?: string
           poster_url?: string | null
           rating?: number | null
           source?: string

@@ -1,7 +1,9 @@
 /**
- * Movie metadata lookup via Cinemeta — a free, key-less public catalog.
+ * Movie & series metadata lookup via Cinemeta — a free, key-less public catalog.
  * Server-only helper: never import from client code.
  */
+
+export type MediaType = "movie" | "series";
 
 export interface MovieMeta {
   imdbId: string | null;
@@ -48,12 +50,16 @@ function mapMeta(meta: CinemetaMeta): MovieMeta {
   };
 }
 
-export async function searchMovies(query: string, limit = 12): Promise<MovieMeta[]> {
+export async function searchMovies(
+  query: string,
+  limit = 12,
+  type: MediaType = "movie",
+): Promise<MovieMeta[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
   try {
     const res = await fetch(
-      `${CINEMETA}/catalog/movie/top/search=${encodeURIComponent(trimmed)}.json`,
+      `${CINEMETA}/catalog/${type}/top/search=${encodeURIComponent(trimmed)}.json`,
       { signal: AbortSignal.timeout(8000) },
     );
     if (!res.ok) return [];
@@ -68,9 +74,12 @@ export async function searchMovies(query: string, limit = 12): Promise<MovieMeta
  * Full metadata (synopsis, genres) for an IMDb id.
  * The search catalog only returns title/poster/year — descriptions live here.
  */
-export async function getMetaById(imdbId: string): Promise<MovieMeta | null> {
+export async function getMetaById(
+  imdbId: string,
+  type: MediaType = "movie",
+): Promise<MovieMeta | null> {
   try {
-    const res = await fetch(`${CINEMETA}/meta/movie/${encodeURIComponent(imdbId)}.json`, {
+    const res = await fetch(`${CINEMETA}/meta/${type}/${encodeURIComponent(imdbId)}.json`, {
       signal: AbortSignal.timeout(8000),
     });
     if (!res.ok) return null;
@@ -82,8 +91,12 @@ export async function getMetaById(imdbId: string): Promise<MovieMeta | null> {
 }
 
 /** Best match for a title (+ optional year), enriched with the full synopsis. */
-export async function lookupMovie(title: string, year?: number | null): Promise<MovieMeta | null> {
-  const results = await searchMovies(title, 10);
+export async function lookupMovie(
+  title: string,
+  year?: number | null,
+  type: MediaType = "movie",
+): Promise<MovieMeta | null> {
+  const results = await searchMovies(title, 10, type);
   if (results.length === 0) return null;
   const target = normalize(title);
 
@@ -101,7 +114,7 @@ export async function lookupMovie(title: string, year?: number | null): Promise<
   const best = scored[0]!.score > 0 ? scored[0]!.meta : results[0]!;
 
   if (!best.imdbId) return best;
-  const full = await getMetaById(best.imdbId);
+  const full = await getMetaById(best.imdbId, type);
   if (!full) return best;
   return {
     ...best,
@@ -114,8 +127,9 @@ export async function lookupMovie(title: string, year?: number | null): Promise<
 
 /** Resolve many titles with bounded concurrency. */
 export async function lookupMany(
-  items: { title: string; year?: number | null }[],
+  items: { title: string; year?: number | null; type?: MediaType }[],
   concurrency = 6,
+  defaultType: MediaType = "movie",
 ): Promise<(MovieMeta | null)[]> {
   const results: (MovieMeta | null)[] = new Array(items.length).fill(null);
   let cursor = 0;
@@ -124,7 +138,7 @@ export async function lookupMany(
     while (cursor < items.length) {
       const index = cursor++;
       const item = items[index]!;
-      results[index] = await lookupMovie(item.title, item.year ?? null);
+      results[index] = await lookupMovie(item.title, item.year ?? null, item.type ?? defaultType);
     }
   }
 
