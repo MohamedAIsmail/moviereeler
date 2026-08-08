@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Bookmark, Loader2, Sparkles, X } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
+import { MediaToggle, type MediaType, copyFor } from "@/components/MediaToggle";
 import { Poster } from "@/components/Poster";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,12 +22,12 @@ export const Route = createFileRoute("/_authenticated/discover")({
       { title: "Discover · Reeler" },
       {
         name: "description",
-        content: "Film picks reasoned from your own ratings, with an explanation for every choice.",
+        content: "Film and series picks reasoned from your own ratings, with a match score.",
       },
       { property: "og:title", content: "Discover · Reeler" },
       {
         property: "og:description",
-        content: "Film picks reasoned from your own ratings, with an explanation for every choice.",
+        content: "Film and series picks reasoned from your own ratings, with a match score.",
       },
     ],
   }),
@@ -40,17 +41,25 @@ function DiscoverPage() {
   const generate = useServerFn(generateRecommendations);
   const setStatus = useServerFn(setRecommendationStatus);
 
+  const [mediaType, setMediaType] = useState<MediaType>("movie");
+  const copy = copyFor(mediaType);
   const [mood, setMood] = useState("");
 
-  const recs = useQuery({ queryKey: ["recommendations"], queryFn: () => fetchRecs({}) });
-  const library = useQuery({ queryKey: ["library"], queryFn: () => fetchLibrary({}) });
+  const recs = useQuery({
+    queryKey: ["recommendations", mediaType],
+    queryFn: () => fetchRecs({ data: { mediaType } }),
+  });
+  const library = useQuery({
+    queryKey: ["library", mediaType],
+    queryFn: () => fetchLibrary({ data: { mediaType } }),
+  });
   const libraryCount = library.data?.length ?? 0;
 
   const generateMutation = useMutation({
-    mutationFn: () => generate({ data: { mood: mood.trim() || null } }),
+    mutationFn: () => generate({ data: { mood: mood.trim() || null, mediaType } }),
     onSuccess: (result) => {
       toast.success(`${result.count} fresh picks ready`);
-      void queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+      void queryClient.invalidateQueries({ queryKey: ["recommendations", mediaType] });
     },
     onError: (error: Error) => toast.error(error.message),
   });
@@ -72,11 +81,15 @@ function DiscoverPage() {
           What should you watch tonight?
         </h1>
         <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-          Reeler reads your ratings — including the films you disliked — and builds a slate of
-          bullseyes, adjacent discoveries and a couple of genuine stretches.
+          Reeler reads your ratings — including the {copy.plural} you disliked — and builds a slate
+          of bullseyes, adjacent discoveries and a couple of genuine stretches.
         </p>
 
-        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+        <div className="mt-6">
+          <MediaToggle value={mediaType} onChange={setMediaType} />
+        </div>
+
+        <div className="mt-4 flex flex-col gap-3 sm:flex-row">
           <Input
             value={mood}
             onChange={(event) => setMood(event.target.value)}
@@ -98,7 +111,7 @@ function DiscoverPage() {
 
         {libraryCount < 3 && (
           <p className="mt-3 text-sm text-muted-foreground">
-            Add at least 3 films first —{" "}
+            Add at least 3 {copy.plural} first —{" "}
             <Link to="/library" className="font-medium text-primary underline-offset-4 hover:underline">
               import your library
             </Link>
@@ -106,6 +119,7 @@ function DiscoverPage() {
           </p>
         )}
       </section>
+
 
       {recs.isLoading ? (
         <div className="mt-16 flex justify-center">
