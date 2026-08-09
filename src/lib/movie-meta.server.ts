@@ -50,6 +50,22 @@ function mapMeta(meta: CinemetaMeta): MovieMeta {
   };
 }
 
+function calculateScore(title: string, year: number | null, meta: MovieMeta): number {
+  const target = normalize(title);
+  const candidate = normalize(meta.title);
+  let score = 0;
+  
+  if (candidate === target) score += 100;
+  else if (candidate.startsWith(target) || target.startsWith(candidate)) score += 60;
+  
+  if (year && meta.year) {
+    score += Math.max(0, 40 - Math.abs(meta.year - year) * 12);
+  }
+  
+  if (meta.posterUrl) score += 5;
+  return score;
+}
+
 export async function searchMovies(
   query: string,
   limit = 12,
@@ -98,17 +114,11 @@ export async function lookupMovie(
 ): Promise<MovieMeta | null> {
   const results = await searchMovies(title, 10, type);
   if (results.length === 0) return null;
-  const target = normalize(title);
 
-  const scored = results.map((meta) => {
-    let score = 0;
-    const candidate = normalize(meta.title);
-    if (candidate === target) score += 100;
-    else if (candidate.startsWith(target) || target.startsWith(candidate)) score += 60;
-    if (year && meta.year) score += Math.max(0, 40 - Math.abs(meta.year - year) * 12);
-    if (meta.posterUrl) score += 5;
-    return { meta, score };
-  });
+  const scored = results.map((meta) => ({
+    meta,
+    score: calculateScore(title, year ?? null, meta),
+  }));
 
   scored.sort((a, b) => b.score - a.score);
   const best = scored[0]!.score > 0 ? scored[0]!.meta : results[0]!;
@@ -125,31 +135,6 @@ export async function lookupMovie(
   };
 }
 
-function matchConfidence(meta: MovieMeta | null, title: string, year?: number | null): number {
-  if (!meta) return -1;
-  const target = normalize(title);
-  const candidate = normalize(meta.title);
-  let score = candidate === target ? 100 : candidate.includes(target) || target.includes(candidate) ? 55 : 0;
-  if (year && meta.year) score += Math.max(-25, 30 - Math.abs(meta.year - year) * 10);
-  return score;
-}
-
-/** Identify an untyped CSV row by comparing the movie and series catalogues. */
-export async function identifyMedia(
-  title: string,
-  year?: number | null,
-): Promise<{ mediaType: MediaType; meta: MovieMeta } | null> {
-  const [movie, series] = await Promise.all([
-    lookupMovie(title, year, "movie"),
-    lookupMovie(title, year, "series"),
-  ]);
-  const movieScore = matchConfidence(movie, title, year);
-  const seriesScore = matchConfidence(series, title, year);
-  if (movieScore < 0 && seriesScore < 0) return null;
-  if (seriesScore > movieScore && series) return { mediaType: "series", meta: series };
-  return movie ? { mediaType: "movie", meta: movie } : series ? { mediaType: "series", meta: series } : null;
-}
-
 /** Resolve many titles with bounded concurrency. */
 export async function lookupMany(
   items: { title: string; year?: number | null; type?: MediaType }[],
@@ -164,6 +149,42 @@ export async function lookupMany(
       const index = cursor++;
       const item = items[index]!;
       results[index] = await lookupMovie(item.title, item.year ?? null, item.type ?? defaultType);
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
+
+/**
+ * Identify if a title is a movie or series by comparing search result scores.
+ */
+export async function classifyMany(
+  items: { title: string; year?: number | null }[],
+  concurrency = 4,
+): Promise<MediaType[]> {
+  const results: MediaType[] = new Array(items.length).fill("movie");
+  let cursor = 0;
+
+  async function worker() {
+    while (cursor < items.length) {
+      const index = cursor++;
+      const { title, year } = items[index]!;
+      
+      try {
+        const [movies, series] = await Promise.all([
+          searchMovies(title, 5, "movie"),
+          searchMovies(title, 5, "series"),
+        ]);
+        
+        const bestMovie = movies[0] ? calculateScore(title, year ?? null, movies[0]) : -1;
+        const bestSeries = series[0] ? calculateScore(title, year ?? null, series[0]) : -1;
+        
+        // Prefer exact matches. If scores are close, default to movie.
+        results[index] = bestSeries > bestMovie ? "series" : "movie";
+      } catch {
+        results[index] = "movie";
+      }
     }
   }
 
