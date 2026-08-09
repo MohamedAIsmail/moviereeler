@@ -13,7 +13,7 @@ export const ImportRowSchema = z.object({
 
 export const ImportPayloadSchema = z.object({
   rows: z.array(ImportRowSchema).min(1).max(4000),
-  mediaType: MediaTypeSchema.optional().default("movie"),
+  mediaType: MediaTypeSchema.optional(),
 });
 
 export const AddMovieSchema = z.object({

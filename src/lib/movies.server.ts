@@ -1,14 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { identifyMedia, lookupMany, type MediaType, type MovieMeta } from "./movie-meta.server";
+import { lookupMany, classifyMany, type MediaType } from "./movie-meta.server";
 import type { ImportRow } from "./movies.schema";
 
 type Client = SupabaseClient<Database>;
 
 export type WatchedMovie = Database["public"]["Tables"]["watched_movies"]["Row"];
 
-function key(title: string, year: number | null | undefined, mediaType: MediaType) {
-  return `${title.trim().toLowerCase()}|${year ?? ""}|${mediaType}`;
+function key(title: string, year: number | null | undefined) {
+  return `${title.trim().toLowerCase()}|${year ?? ""}`;
 }
 
 export async function fetchLibrary(
@@ -31,37 +31,38 @@ export async function insertLibraryRows(
   userId: string,
   rows: ImportRow[],
   source: string,
-  fallbackMediaType: MediaType = "movie",
-): Promise<{ imported: number; duplicates: number; movies: number; series: number; autoDetected: number }> {
-  const existing = await fetchLibrary(supabase, userId);
-  const seen = new Set(
-    existing.map((row) => key(row.title, row.year, row.media_type === "series" ? "series" : "movie")),
-  );
-
-  const unknown = rows
-    .map((row, index) => ({ row, index }))
-    .filter(({ row }) => !row.mediaType);
-  const detected = new Map<number, { mediaType: MediaType; meta: MovieMeta }>();
-  let cursor = 0;
-  async function classifyWorker() {
-    while (cursor < unknown.length) {
-      const item = unknown[cursor++];
-      if (!item) continue;
-      const match = await identifyMedia(item.row.title, item.row.year);
-      if (match) detected.set(item.index, match);
-    }
+  defaultMediaType?: MediaType,
+): Promise<{ imported: number; duplicates: number }> {
+  // 1. Auto-classify rows that don't have a media type if no default is provided
+  const rowsToClassify = rows.filter((r) => !r.mediaType && !defaultMediaType);
+  if (rowsToClassify.length > 0) {
+    // Only classify the first 100 to avoid hitting rate limits too hard, 
+    // or we can just do them all if it's required. 
+    // Given the "mixed CSV" requirement, we do them all but in batches.
+    const detectedTypes = await classifyMany(
+      rowsToClassify.map((r) => ({ title: r.title, year: r.year })),
+      6 // concurrency
+    );
+    rowsToClassify.forEach((row, i) => {
+      row.mediaType = detectedTypes[i];
+    });
   }
-  await Promise.all(Array.from({ length: Math.min(8, unknown.length) }, classifyWorker));
+
+  // 2. Fetch all existing entries for this user to avoid duplicates across types
+  const { data: existing } = await supabase
+    .from("watched_movies")
+    .select("title, year, media_type")
+    .eq("user_id", userId);
+  
+  const seen = new Set((existing ?? []).map((row) => `${row.media_type}|${key(row.title, row.year)}`));
 
   const fresh: Database["public"]["Tables"]["watched_movies"]["Insert"][] = [];
   let duplicates = 0;
-  let movies = 0;
-  let series = 0;
 
-  for (const [index, row] of rows.entries()) {
-    const catalogMatch = detected.get(index);
-    const mediaType = row.mediaType ?? catalogMatch?.mediaType ?? fallbackMediaType;
-    const rowKey = key(row.title, row.year ?? null, mediaType);
+  for (const row of rows) {
+    const finalType = row.mediaType ?? defaultMediaType ?? "movie";
+    const rowKey = `${finalType}|${key(row.title, row.year ?? null)}`;
+    
     if (seen.has(rowKey)) {
       duplicates++;
       continue;
@@ -73,21 +74,18 @@ export async function insertLibraryRows(
       year: row.year ?? null,
       rating: row.rating ?? null,
       watched_on: row.watchedOn ?? null,
-      media_type: mediaType,
-      imdb_id: row.imdbId ?? catalogMatch?.meta.imdbId ?? null,
-      poster_url: catalogMatch?.meta.posterUrl ?? null,
+      media_type: finalType,
       source,
     });
-    if (mediaType === "series") series++;
-    else movies++;
   }
 
+  // 3. Insert in batches
   for (let i = 0; i < fresh.length; i += 200) {
     const { error } = await supabase.from("watched_movies").insert(fresh.slice(i, i + 200));
     if (error) throw new Error(error.message);
   }
 
-  return { imported: fresh.length, duplicates, movies, series, autoDetected: detected.size };
+  return { imported: fresh.length, duplicates };
 }
 
 /** Fill in posters for library rows that don't have one yet. */
