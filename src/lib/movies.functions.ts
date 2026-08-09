@@ -22,7 +22,13 @@ export const importMovies = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) => ImportPayloadSchema.parse(input))
   .handler(async ({ data, context }) => {
     const { insertLibraryRows } = await import("./movies.server");
-    return insertLibraryRows(context.supabase, context.userId, data.rows, "csv", data.mediaType);
+    return insertLibraryRows(
+      context.supabase,
+      context.userId,
+      data.rows,
+      "csv",
+      data.fallbackMediaType,
+    );
   });
 
 export const addMovie = createServerFn({ method: "POST" })

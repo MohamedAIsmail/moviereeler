@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { lookupMany, type MediaType } from "./movie-meta.server";
+import { lookupMany, classifyMany, type MediaType } from "./movie-meta.server";
 import type { ImportRow } from "./movies.schema";
 
 type Client = SupabaseClient<Database>;
@@ -31,41 +31,66 @@ export async function insertLibraryRows(
   userId: string,
   rows: ImportRow[],
   source: string,
-  mediaType: MediaType = "movie",
-): Promise<{ imported: number; duplicates: number }> {
-  const existing = await fetchLibrary(supabase, userId, mediaType);
-  const seen = new Set(existing.map((row) => key(row.title, row.year)));
+  defaultMediaType?: MediaType,
+): Promise<{ movies: number; series: number; duplicates: number }> {
+  // 1. Auto-classify rows that don't have a media type if no default is provided
+  const rowsToClassify = rows.filter((r) => !r.mediaType && !defaultMediaType);
+  if (rowsToClassify.length > 0) {
+    const detectedTypes = await classifyMany(
+      rowsToClassify.map((r) => ({ title: r.title, year: r.year ?? null })),
+      6
+    );
+    rowsToClassify.forEach((row, i) => {
+      row.mediaType = detectedTypes[i];
+    });
+  }
+
+  // 2. Fetch all existing entries for this user
+  const { data: existing } = await supabase
+    .from("watched_movies")
+    .select("title, year, media_type")
+    .eq("user_id", userId);
+  
+  const seen = new Set((existing ?? []).map((row) => `${row.media_type}|${key(row.title, row.year)}`));
 
   const fresh: Database["public"]["Tables"]["watched_movies"]["Insert"][] = [];
   let duplicates = 0;
+  let movieCount = 0;
+  let seriesCount = 0;
 
   for (const row of rows) {
-    const rowKey = key(row.title, row.year ?? null);
+    const finalType = row.mediaType ?? defaultMediaType ?? "movie";
+    const rowKey = `${finalType}|${key(row.title, row.year ?? null)}`;
+    
     if (seen.has(rowKey)) {
       duplicates++;
       continue;
     }
     seen.add(rowKey);
+    
+    if (finalType === "movie") movieCount++;
+    else seriesCount++;
+
     fresh.push({
       user_id: userId,
       title: row.title.trim(),
       year: row.year ?? null,
       rating: row.rating ?? null,
       watched_on: row.watchedOn ?? null,
-      media_type: mediaType,
+      media_type: finalType,
       source,
     });
   }
 
+  // 3. Insert in batches
   for (let i = 0; i < fresh.length; i += 200) {
     const { error } = await supabase.from("watched_movies").insert(fresh.slice(i, i + 200));
     if (error) throw new Error(error.message);
   }
 
-  return { imported: fresh.length, duplicates };
+  return { movies: movieCount, series: seriesCount, duplicates };
 }
 
-/** Fill in posters for library rows that don't have one yet. */
 export async function enrichLibraryPosters(
   supabase: Client,
   userId: string,
@@ -96,7 +121,6 @@ export async function enrichLibraryPosters(
       const meta = metas[index];
       const posterUrl = meta?.posterUrl;
       if (!posterUrl) {
-        // Mark as attempted so we don't loop on it forever.
         await supabase.from("watched_movies").update({ poster_url: "" }).eq("id", row.id);
         return;
       }
