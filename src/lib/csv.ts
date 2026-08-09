@@ -9,7 +9,6 @@ export interface ParsedRow {
   rating: number | null;
   watchedOn: string | null;
   mediaType?: "movie" | "series";
-  imdbId?: string | null;
 }
 
 function splitCsv(text: string): string[][] {
@@ -57,35 +56,40 @@ function findIndex(headers: string[], candidates: string[]): number {
   return headers.findIndex((header) => candidates.includes(header));
 }
 
-/** Normalize common numeric, fractional, percentage and Letterboxd star ratings to 0–10. */
-function normalizeRating(raw: string, scale: 5 | 10 | 100): number | null {
-  const cleaned = raw.trim().replace(",", ".");
-  if (!cleaned) return null;
+/** 
+ * Letterboxd ratings are 0–5 stars; IMDb and most others are already 0–10. 
+ * We also handle common formats like "8/10" or "4,5".
+ */
+function normalizeRating(raw: string, doubleScale: boolean): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
 
-  const stars = cleaned.match(/[★⭐]/g)?.length ?? 0;
-  const halfStar = /[½⯪]/.test(cleaned) ? 0.5 : 0;
-  const fraction = /^\s*(\d+(?:\.\d+)?)\s*\/\s*(5|10|100)\s*$/.exec(cleaned);
-  const value = stars > 0 ? stars + halfStar : fraction ? Number(fraction[1]) : Number(cleaned.replace("%", ""));
-  const sourceScale = stars > 0 ? 5 : fraction ? Number(fraction[2]) : cleaned.includes("%") ? 100 : scale;
-  if (Number.isNaN(value)) return null;
-  const scaled = (value / sourceScale) * 10;
-  return Math.min(10, Math.max(0, Math.round(scaled * 10) / 10));
-}
-
-function parseMediaType(raw: string): "movie" | "series" | undefined {
-  const value = raw.trim().toLowerCase().replace(/[\s_-]+/g, "");
-  if (!value) return undefined;
-  if (
-    value.includes("series") ||
-    value.includes("tvshow") ||
-    value.includes("television") ||
-    value.includes("miniseries") ||
-    value === "show"
-  ) {
-    return "series";
+  let value: number;
+  
+  // Handle fractions like "8/10" or "4/5"
+  if (trimmed.includes("/")) {
+    const [num, den] = trimmed.split("/").map((part) => {
+      const p = part.replace(",", ".").replace(/[^\d.]/g, "");
+      return p ? Number(p) : NaN;
+    });
+    if (!isNaN(num!) && !isNaN(den!) && den !== 0) {
+      // If it's something like 4/5, it's on a 5-point scale.
+      // If it's 8/10, it's on a 10-point scale.
+      // We normalize everything to 10.
+      value = (num! / den!) * 10;
+      // We don't want to double scale again if it was a fraction.
+      return Math.min(10, Math.max(0, Math.round(value * 10) / 10));
+    }
   }
-  if (value.includes("movie") || value === "film" || value === "feature") return "movie";
-  return undefined;
+
+  // Handle European decimals (7,5 -> 7.5) and strip non-numeric stuff like stars
+  const cleaned = trimmed.replace(",", ".").replace(/[^\d.]/g, "");
+  value = Number(cleaned);
+
+  if (Number.isNaN(value)) return null;
+
+  const scaled = doubleScale ? value * 2 : value;
+  return Math.min(10, Math.max(0, Math.round(scaled * 10) / 10));
 }
 
 export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: number } {
@@ -94,24 +98,16 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
 
   const headers = table[0]!.map((header) => header.trim().toLowerCase());
   const titleIndex = findIndex(headers, ["name", "title", "film", "movie"]);
-  const yearIndex = findIndex(headers, ["year", "release year", "release date"]);
-  const ratingIndex = findIndex(headers, [
-    "your rating",
-    "my rating",
-    "personal rating",
-    "user rating",
-    "rating",
-    "score",
-  ]);
+  const yearIndex = findIndex(headers, ["year", "release year"]);
+  const ratingIndex = findIndex(headers, ["your rating", "rating", "score"]);
   const dateIndex = findIndex(headers, ["watched date", "date rated", "date", "date watched"]);
-  const typeIndex = findIndex(headers, ["title type", "media type", "type", "kind"]);
-  const imdbIndex = findIndex(headers, ["const", "imdb id", "imdb_id"]);
+  const typeIndex = findIndex(headers, ["type", "title type", "media type", "kind"]);
+  
   const isLetterboxd = headers.includes("letterboxd uri");
-  const ratingHeader = ratingIndex >= 0 ? headers[ratingIndex] ?? "" : "";
-  const ratingScale: 5 | 10 | 100 = isLetterboxd || ratingHeader.includes("5") ? 5 : ratingHeader.includes("100") ? 100 : 10;
+  // IMDb exports rate 1–10 already; Letterboxd uses 0–5 stars.
+  const doubleScale = isLetterboxd;
 
   if (titleIndex === -1) return { rows: [], skipped: table.length - 1 };
-
 
   const seen = new Set<string>();
   const rows: ParsedRow[] = [];
@@ -127,8 +123,7 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
     const yearMatch = /\d{4}/.exec(yearRaw);
     const year = yearMatch ? Number(yearMatch[0]) : null;
 
-    const mediaType = typeIndex >= 0 ? parseMediaType(cells[typeIndex] ?? "") : undefined;
-    const key = `${title.toLowerCase()}|${year ?? ""}|${mediaType ?? ""}`;
+    const key = `${title.toLowerCase()}|${year ?? ""}`;
     if (seen.has(key)) {
       skipped++;
       continue;
@@ -136,13 +131,23 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
     seen.add(key);
 
     const dateRaw = dateIndex >= 0 ? (cells[dateIndex] ?? "").trim() : "";
+    const typeRaw = typeIndex >= 0 ? (cells[typeIndex] ?? "").toLowerCase() : "";
+    
+    let mediaType: "movie" | "series" | undefined;
+    if (typeRaw) {
+      if (typeRaw.includes("series") || typeRaw.includes("tv") || typeRaw.includes("show")) {
+        mediaType = "series";
+      } else if (typeRaw.includes("movie") || typeRaw.includes("film") || typeRaw.includes("short")) {
+        mediaType = "movie";
+      }
+    }
+
     rows.push({
       title: title.slice(0, 300),
       year,
-      rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", ratingScale) : null,
+      rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", doubleScale) : null,
       watchedOn: /^\d{4}-\d{2}-\d{2}/.test(dateRaw) ? dateRaw.slice(0, 10) : null,
-      ...(mediaType ? { mediaType } : {}),
-      imdbId: imdbIndex >= 0 ? (cells[imdbIndex] ?? "").trim() || null : null,
+      mediaType,
     });
   }
 
