@@ -40,6 +40,7 @@ import {
   searchCatalog,
 } from "@/lib/movies.functions";
 import { listRecommendations, setRecommendationStatus } from "@/lib/recommend.functions";
+import { Checkbox } from "@/components/ui/checkbox";
 
 export const Route = createFileRoute("/_authenticated/library")({
   head: () => ({
@@ -82,7 +83,6 @@ function LibraryPage() {
   });
   const movies = library.data ?? [];
 
-  // Progressively fill in missing posters, a batch at a time.
   const missingPosters = movies.some((movie) => movie.poster_url === null);
   useEffect(() => {
     if (!missingPosters) return;
@@ -99,19 +99,25 @@ function LibraryPage() {
   }, [missingPosters, runEnrich, queryClient]);
 
   const importMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file, autoDetect }: { file: File; autoDetect: boolean }) => {
       const text = await file.text();
       const { rows, skipped } = parseMovieCsv(text);
       if (rows.length === 0) {
         throw new Error("No titles found. The file needs a Name or Title column.");
       }
-      const result = await runImport({ data: { rows, fallbackMediaType: mediaType } });
+      const result = await runImport({ 
+        data: { rows, mediaType: autoDetect ? undefined : mediaType } 
+      });
       return { ...result, skipped };
     },
     onSuccess: (result) => {
       setImportOpen(false);
+      const parts = [];
+      if (result.movies > 0) parts.push(`${result.movies} movies`);
+      if (result.series > 0) parts.push(`${result.series} series`);
+      
       toast.success(
-        `Imported ${result.movies} movies and ${result.series} series` +
+        `Imported ${parts.join(" and ") || "items"}` +
           (result.duplicates ? ` · ${result.duplicates} already in your library` : ""),
       );
       void queryClient.invalidateQueries({ queryKey: ["library"] });
@@ -152,7 +158,7 @@ function LibraryPage() {
             open={importOpen}
             onOpenChange={setImportOpen}
             pending={importMutation.isPending}
-            onFile={(file) => importMutation.mutate(file)}
+            onFile={(file, autoDetect) => importMutation.mutate({ file, autoDetect })}
           />
           {movies.length > 0 && (
             <AlertDialog>
@@ -250,7 +256,6 @@ interface LibraryMovie {
   poster_url: string | null;
 }
 
-/** Slider stays fully local while dragging and saves once the user pauses. */
 function MovieCard({
   movie,
   onRate,
@@ -264,7 +269,6 @@ function MovieCard({
   const dirty = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Adopt server value again unless the user is mid-edit.
   useEffect(() => {
     if (!dirty.current) setRating(movie.rating ?? 0);
   }, [movie.rating]);
@@ -405,9 +409,11 @@ function ImportDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
-  onFile: (file: File) => void;
+  onFile: (file: File, autoDetect: boolean) => void;
 }) {
   const copy = copyFor(mediaType);
+  const [autoDetect, setAutoDetect] = useState(true);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
@@ -426,28 +432,50 @@ function ImportDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-secondary/40 px-6 py-10 text-center transition-colors hover:border-primary/60">
-          {pending ? (
-            <Loader2 className="size-6 animate-spin text-primary" />
-          ) : (
-            <Upload className="size-6 text-primary" />
-          )}
-          <span className="text-sm font-medium">
-            {pending ? "Importing…" : "Choose a CSV file"}
-          </span>
-          <span className="text-xs text-muted-foreground">Up to 4,000 rows per import</span>
-          <input
-            type="file"
-            accept=".csv,text/csv"
-            className="sr-only"
-            disabled={pending}
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              if (file) onFile(file);
-              event.target.value = "";
-            }}
-          />
-        </label>
+        <div className="space-y-6 py-4">
+          <div className="flex items-center space-x-3 rounded-lg border border-border p-4 transition-colors hover:bg-secondary/20">
+            <Checkbox
+              id="auto-detect"
+              checked={autoDetect}
+              onCheckedChange={(checked) => setAutoDetect(!!checked)}
+            />
+            <div className="grid gap-1.5 leading-none">
+              <label
+                htmlFor="auto-detect"
+                className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
+              >
+                Auto-detect media type
+              </label>
+              <p className="text-xs text-muted-foreground">
+                Differentiates movies vs series using metadata. If unchecked, all rows go to{" "}
+                {copy.plural.toLowerCase()}.
+              </p>
+            </div>
+          </div>
+
+          <label className="flex cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border bg-secondary/40 px-6 py-10 text-center transition-colors hover:border-primary/60">
+            {pending ? (
+              <Loader2 className="size-6 animate-spin text-primary" />
+            ) : (
+              <Upload className="size-6 text-primary" />
+            )}
+            <span className="text-sm font-medium">
+              {pending ? "Importing…" : "Choose a CSV file"}
+            </span>
+            <span className="text-xs text-muted-foreground">Up to 4,000 rows per import</span>
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              className="sr-only"
+              disabled={pending}
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) onFile(file, autoDetect);
+                event.target.value = "";
+              }}
+            />
+          </label>
+        </div>
       </DialogContent>
     </Dialog>
   );
@@ -483,7 +511,6 @@ function AddMovieDialog({
   const [results, setResults] = useState<CatalogResult[]>([]);
   const [searching, setSearching] = useState(false);
 
-  // Searching a different catalogue should not show stale hits.
   useEffect(() => {
     setResults([]);
   }, [mediaType]);
@@ -502,55 +529,64 @@ function AddMovieDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogTrigger asChild>
-        <Button variant="secondary">
+        <Button>
           <Plus className="size-4" />
           Add {copy.singular}
         </Button>
       </DialogTrigger>
-      <DialogContent>
+      <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Add a {copy.singular}</DialogTitle>
+          <DialogTitle>Add a {copy.singular.toLowerCase()}</DialogTitle>
           <DialogDescription>
-            Search the {copy.label.toLowerCase()} catalogue and add it to your library.
+            Search the global catalog to add a {copy.singular.toLowerCase()} to your library.
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={submit} className="flex gap-2">
+        <form onSubmit={submit} className="mt-4 flex gap-2">
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={mediaType === "series" ? "e.g. The Leftovers" : "e.g. In the Mood for Love"}
+            placeholder={`Search for a ${copy.singular.toLowerCase()}...`}
+            className="flex-1"
           />
-          <Button type="submit" disabled={searching}>
+          <Button type="submit" disabled={searching || !query.trim()}>
             {searching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
           </Button>
         </form>
 
-        <ul className="max-h-80 space-y-1 overflow-y-auto">
+        <ul className="mt-6 max-h-[40vh] space-y-3 overflow-y-auto pr-1">
           {results.map((result) => (
-            <li key={`${result.imdbId ?? result.title}-${result.year ?? ""}`}>
-              <button
-                type="button"
-                className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary"
-                onClick={() =>
-                  void onAdd({
-                    title: result.title,
-                    year: result.year,
-                    posterUrl: result.posterUrl,
-                    imdbId: result.imdbId,
-                  })
-                }
+            <li
+              key={result.imdbId ?? result.title + result.year}
+              className="flex items-center gap-4 rounded-lg border border-border p-2 transition-colors hover:bg-secondary/40"
+            >
+              <div className="h-16 w-11 flex-shrink-0 overflow-hidden rounded bg-secondary">
+                {result.posterUrl && (
+                  <img
+                    src={result.posterUrl}
+                    alt=""
+                    className="h-full w-full object-cover"
+                    loading="lazy"
+                  />
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-medium">{result.title}</p>
+                <p className="text-xs text-muted-foreground">{result.year ?? "—"}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => void onAdd(result)}
+                className="h-8 w-8 p-0"
               >
-                <div className="w-10 shrink-0">
-                  <Poster title={result.title} posterUrl={result.posterUrl} />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">{result.title}</p>
-                  <p className="text-xs text-muted-foreground">{result.year ?? "—"}</p>
-                </div>
-              </button>
+                <Plus className="size-4" />
+              </Button>
             </li>
           ))}
+          {results.length === 0 && !searching && query && (
+            <p className="py-10 text-center text-sm text-muted-foreground">No matches found.</p>
+          )}
         </ul>
       </DialogContent>
     </Dialog>
