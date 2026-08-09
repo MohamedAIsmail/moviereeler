@@ -399,13 +399,13 @@ function ImportDialog({
   open,
   onOpenChange,
   pending,
-  onFile: (file: File, autoDetect: boolean) => void;
+  onFile,
 }: {
   mediaType: MediaType;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   pending: boolean;
-  onFile: (file: File, autoDetect: boolean) => void;
+  onFile: (file: File) => void;
 }) {
   const copy = copyFor(mediaType);
   return (
