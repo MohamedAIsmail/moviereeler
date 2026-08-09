@@ -31,14 +31,10 @@ export async function insertLibraryRows(
   userId: string,
   rows: ImportRow[],
   source: string,
-  defaultMediaType?: MediaType,
-): Promise<{ imported: number; duplicates: number }> {
-  // 1. Auto-classify rows that don't have a media type if no default is provided
-  const rowsToClassify = rows.filter((r) => !r.mediaType && !defaultMediaType);
+  fallbackMediaType: MediaType = "movie",
+): Promise<{ imported: number; duplicates: number; movies: number; series: number; autoDetected: number }> {
+  const rowsToClassify = rows.filter((row) => !row.mediaType);
   if (rowsToClassify.length > 0) {
-    // Only classify the first 100 to avoid hitting rate limits too hard, 
-    // or we can just do them all if it's required. 
-    // Given the "mixed CSV" requirement, we do them all but in batches.
     const detectedTypes = await classifyMany(
       rowsToClassify.map((r) => ({ title: r.title, year: r.year })),
       6 // concurrency
@@ -58,9 +54,11 @@ export async function insertLibraryRows(
 
   const fresh: Database["public"]["Tables"]["watched_movies"]["Insert"][] = [];
   let duplicates = 0;
+  let movies = 0;
+  let series = 0;
 
   for (const row of rows) {
-    const finalType = row.mediaType ?? defaultMediaType ?? "movie";
+    const finalType = row.mediaType ?? fallbackMediaType;
     const rowKey = `${finalType}|${key(row.title, row.year ?? null)}`;
     
     if (seen.has(rowKey)) {
@@ -75,8 +73,11 @@ export async function insertLibraryRows(
       rating: row.rating ?? null,
       watched_on: row.watchedOn ?? null,
       media_type: finalType,
+      imdb_id: row.imdbId ?? null,
       source,
     });
+    if (finalType === "series") series++;
+    else movies++;
   }
 
   // 3. Insert in batches
@@ -85,7 +86,7 @@ export async function insertLibraryRows(
     if (error) throw new Error(error.message);
   }
 
-  return { imported: fresh.length, duplicates };
+  return { imported: fresh.length, duplicates, movies, series, autoDetected: rowsToClassify.length };
 }
 
 /** Fill in posters for library rows that don't have one yet. */

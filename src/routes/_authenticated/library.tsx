@@ -105,7 +105,7 @@ function LibraryPage() {
       if (rows.length === 0) {
         throw new Error("No titles found. The file needs a Name or Title column.");
       }
-       const result = await runImport({ data: { rows, fallbackMediaType: mediaType } });
+      const result = await runImport({ data: { rows, fallbackMediaType: mediaType } });
       return { ...result, skipped };
     },
     onSuccess: (result) => {

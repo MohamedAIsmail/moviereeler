@@ -9,6 +9,7 @@ export interface ParsedRow {
   rating: number | null;
   watchedOn: string | null;
   mediaType?: "movie" | "series";
+  imdbId?: string | null;
 }
 
 function splitCsv(text: string): string[][] {
@@ -56,39 +57,21 @@ function findIndex(headers: string[], candidates: string[]): number {
   return headers.findIndex((header) => candidates.includes(header));
 }
 
-/** 
- * Letterboxd ratings are 0–5 stars; IMDb and most others are already 0–10. 
- * We also handle common formats like "8/10" or "4,5".
- */
-function normalizeRating(raw: string, doubleScale: boolean): number | null {
+/** Normalize numeric, fractional, percentage and star ratings to 0–10. */
+function normalizeRating(raw: string, scale: 5 | 10 | 100): number | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-
-  let value: number;
-  
-  // Handle fractions like "8/10" or "4/5"
-  if (trimmed.includes("/")) {
-    const [num, den] = trimmed.split("/").map((part) => {
-      const p = part.replace(",", ".").replace(/[^\d.]/g, "");
-      return p ? Number(p) : NaN;
-    });
-    if (!isNaN(num!) && !isNaN(den!) && den !== 0) {
-      // If it's something like 4/5, it's on a 5-point scale.
-      // If it's 8/10, it's on a 10-point scale.
-      // We normalize everything to 10.
-      value = (num! / den!) * 10;
-      // We don't want to double scale again if it was a fraction.
-      return Math.min(10, Math.max(0, Math.round(value * 10) / 10));
-    }
-  }
-
-  // Handle European decimals (7,5 -> 7.5) and strip non-numeric stuff like stars
-  const cleaned = trimmed.replace(",", ".").replace(/[^\d.]/g, "");
-  value = Number(cleaned);
-
+  const fraction = /^(\d+(?:[.,]\d+)?)\s*\/\s*(5|10|100)$/.exec(trimmed);
+  const fullStars = trimmed.match(/[★⭐]/g)?.length ?? 0;
+  const halfStar = /[½⯪]/.test(trimmed) ? 0.5 : 0;
+  const value = fullStars
+    ? fullStars + halfStar
+    : fraction
+      ? Number(fraction[1]?.replace(",", "."))
+      : Number(trimmed.replace(",", ".").replace("%", ""));
+  const sourceScale = fullStars ? 5 : fraction ? Number(fraction[2]) : trimmed.includes("%") ? 100 : scale;
   if (Number.isNaN(value)) return null;
-
-  const scaled = doubleScale ? value * 2 : value;
+  const scaled = (value / sourceScale) * 10;
   return Math.min(10, Math.max(0, Math.round(scaled * 10) / 10));
 }
 
@@ -98,14 +81,17 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
 
   const headers = table[0]!.map((header) => header.trim().toLowerCase());
   const titleIndex = findIndex(headers, ["name", "title", "film", "movie"]);
-  const yearIndex = findIndex(headers, ["year", "release year"]);
-  const ratingIndex = findIndex(headers, ["your rating", "rating", "score"]);
+  const yearIndex = findIndex(headers, ["year", "release year", "release date"]);
+  const ratingIndex = findIndex(headers, ["your rating", "my rating", "personal rating", "user rating", "rating", "score"]);
   const dateIndex = findIndex(headers, ["watched date", "date rated", "date", "date watched"]);
   const typeIndex = findIndex(headers, ["type", "title type", "media type", "kind"]);
+  const imdbIndex = findIndex(headers, ["const", "imdb id", "imdb_id"]);
   
   const isLetterboxd = headers.includes("letterboxd uri");
-  // IMDb exports rate 1–10 already; Letterboxd uses 0–5 stars.
-  const doubleScale = isLetterboxd;
+  const ratingHeader = ratingIndex >= 0 ? headers[ratingIndex] ?? "" : "";
+  const ratingScale: 5 | 10 | 100 = isLetterboxd || ratingHeader.includes("5")
+    ? 5
+    : ratingHeader.includes("100") ? 100 : 10;
 
   if (titleIndex === -1) return { rows: [], skipped: table.length - 1 };
 
@@ -123,7 +109,14 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
     const yearMatch = /\d{4}/.exec(yearRaw);
     const year = yearMatch ? Number(yearMatch[0]) : null;
 
-    const key = `${title.toLowerCase()}|${year ?? ""}`;
+    const typeRaw = typeIndex >= 0 ? (cells[typeIndex] ?? "").toLowerCase() : "";
+    let mediaType: "movie" | "series" | undefined;
+    if (typeRaw.includes("series") || typeRaw.includes("tv") || typeRaw.includes("show")) {
+      mediaType = "series";
+    } else if (typeRaw.includes("movie") || typeRaw.includes("film") || typeRaw.includes("short")) {
+      mediaType = "movie";
+    }
+    const key = `${title.toLowerCase()}|${year ?? ""}|${mediaType ?? ""}`;
     if (seen.has(key)) {
       skipped++;
       continue;
@@ -131,23 +124,13 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
     seen.add(key);
 
     const dateRaw = dateIndex >= 0 ? (cells[dateIndex] ?? "").trim() : "";
-    const typeRaw = typeIndex >= 0 ? (cells[typeIndex] ?? "").toLowerCase() : "";
-    
-    let mediaType: "movie" | "series" | undefined;
-    if (typeRaw) {
-      if (typeRaw.includes("series") || typeRaw.includes("tv") || typeRaw.includes("show")) {
-        mediaType = "series";
-      } else if (typeRaw.includes("movie") || typeRaw.includes("film") || typeRaw.includes("short")) {
-        mediaType = "movie";
-      }
-    }
-
     rows.push({
       title: title.slice(0, 300),
       year,
-      rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", doubleScale) : null,
+      rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", ratingScale) : null,
       watchedOn: /^\d{4}-\d{2}-\d{2}/.test(dateRaw) ? dateRaw.slice(0, 10) : null,
-      mediaType,
+      ...(mediaType ? { mediaType } : {}),
+      imdbId: imdbIndex >= 0 ? (cells[imdbIndex] ?? "").trim() || null : null,
     });
   }
 
