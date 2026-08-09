@@ -37,7 +37,7 @@ export async function insertLibraryRows(
   const rowsToClassify = rows.filter((r) => !r.mediaType && !defaultMediaType);
   if (rowsToClassify.length > 0) {
     const detectedTypes = await classifyMany(
-      rowsToClassify.map((r) => ({ title: r.title, year: r.year })),
+      rowsToClassify.map((r) => ({ title: r.title, year: r.year ?? null })),
       6
     );
     rowsToClassify.forEach((row, i) => {
