@@ -141,7 +141,7 @@ export function parseMovieCsv(text: string): { rows: ParsedRow[]; skipped: numbe
       year,
       rating: ratingIndex >= 0 ? normalizeRating(cells[ratingIndex] ?? "", ratingScale) : null,
       watchedOn: /^\d{4}-\d{2}-\d{2}/.test(dateRaw) ? dateRaw.slice(0, 10) : null,
-      mediaType,
+      ...(mediaType ? { mediaType } : {}),
       imdbId: imdbIndex >= 0 ? (cells[imdbIndex] ?? "").trim() || null : null,
     });
   }
