@@ -1,14 +1,14 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { lookupMany, type MediaType } from "./movie-meta.server";
+import { identifyMedia, lookupMany, type MediaType, type MovieMeta } from "./movie-meta.server";
 import type { ImportRow } from "./movies.schema";
 
 type Client = SupabaseClient<Database>;
 
 export type WatchedMovie = Database["public"]["Tables"]["watched_movies"]["Row"];
 
-function key(title: string, year: number | null | undefined) {
-  return `${title.trim().toLowerCase()}|${year ?? ""}`;
+function key(title: string, year: number | null | undefined, mediaType: MediaType) {
+  return `${title.trim().toLowerCase()}|${year ?? ""}|${mediaType}`;
 }
 
 export async function fetchLibrary(
@@ -31,16 +31,37 @@ export async function insertLibraryRows(
   userId: string,
   rows: ImportRow[],
   source: string,
-  mediaType: MediaType = "movie",
-): Promise<{ imported: number; duplicates: number }> {
-  const existing = await fetchLibrary(supabase, userId, mediaType);
-  const seen = new Set(existing.map((row) => key(row.title, row.year)));
+  fallbackMediaType: MediaType = "movie",
+): Promise<{ imported: number; duplicates: number; movies: number; series: number; autoDetected: number }> {
+  const existing = await fetchLibrary(supabase, userId);
+  const seen = new Set(
+    existing.map((row) => key(row.title, row.year, row.media_type === "series" ? "series" : "movie")),
+  );
+
+  const unknown = rows
+    .map((row, index) => ({ row, index }))
+    .filter(({ row }) => !row.mediaType);
+  const detected = new Map<number, { mediaType: MediaType; meta: MovieMeta }>();
+  let cursor = 0;
+  async function classifyWorker() {
+    while (cursor < unknown.length) {
+      const item = unknown[cursor++];
+      if (!item) continue;
+      const match = await identifyMedia(item.row.title, item.row.year);
+      if (match) detected.set(item.index, match);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(8, unknown.length) }, classifyWorker));
 
   const fresh: Database["public"]["Tables"]["watched_movies"]["Insert"][] = [];
   let duplicates = 0;
+  let movies = 0;
+  let series = 0;
 
-  for (const row of rows) {
-    const rowKey = key(row.title, row.year ?? null);
+  for (const [index, row] of rows.entries()) {
+    const catalogMatch = detected.get(index);
+    const mediaType = row.mediaType ?? catalogMatch?.mediaType ?? fallbackMediaType;
+    const rowKey = key(row.title, row.year ?? null, mediaType);
     if (seen.has(rowKey)) {
       duplicates++;
       continue;
@@ -53,8 +74,12 @@ export async function insertLibraryRows(
       rating: row.rating ?? null,
       watched_on: row.watchedOn ?? null,
       media_type: mediaType,
+      imdb_id: row.imdbId ?? catalogMatch?.meta.imdbId ?? null,
+      poster_url: catalogMatch?.meta.posterUrl ?? null,
       source,
     });
+    if (mediaType === "series") series++;
+    else movies++;
   }
 
   for (let i = 0; i < fresh.length; i += 200) {
@@ -62,7 +87,7 @@ export async function insertLibraryRows(
     if (error) throw new Error(error.message);
   }
 
-  return { imported: fresh.length, duplicates };
+  return { imported: fresh.length, duplicates, movies, series, autoDetected: detected.size };
 }
 
 /** Fill in posters for library rows that don't have one yet. */

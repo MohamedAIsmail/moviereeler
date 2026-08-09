@@ -105,13 +105,13 @@ function LibraryPage() {
       if (rows.length === 0) {
         throw new Error("No titles found. The file needs a Name or Title column.");
       }
-      const result = await runImport({ data: { rows, mediaType } });
+       const result = await runImport({ data: { rows, fallbackMediaType: mediaType } });
       return { ...result, skipped };
     },
     onSuccess: (result) => {
       setImportOpen(false);
       toast.success(
-        `Imported ${result.imported} ${copy.plural}` +
+        `Imported ${result.movies} movies and ${result.series} series` +
           (result.duplicates ? ` · ${result.duplicates} already in your library` : ""),
       );
       void queryClient.invalidateQueries({ queryKey: ["library"] });
@@ -418,10 +418,11 @@ function ImportDialog({
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Import your {copy.plural}</DialogTitle>
+          <DialogTitle>Import movies and series</DialogTitle>
           <DialogDescription>
-            Drop in an IMDb or Letterboxd export, or any CSV with Name/Title, Year and Rating
-            columns. Rows are added to your {copy.label.toLowerCase()} list.
+            Upload one IMDb, Letterboxd, or generic CSV. Title Type/Media Type is used when
+            available; otherwise each title is identified automatically. Personal ratings are
+            normalized to a 10-point scale.
           </DialogDescription>
         </DialogHeader>
 

@@ -125,6 +125,31 @@ export async function lookupMovie(
   };
 }
 
+function matchConfidence(meta: MovieMeta | null, title: string, year?: number | null): number {
+  if (!meta) return -1;
+  const target = normalize(title);
+  const candidate = normalize(meta.title);
+  let score = candidate === target ? 100 : candidate.includes(target) || target.includes(candidate) ? 55 : 0;
+  if (year && meta.year) score += Math.max(-25, 30 - Math.abs(meta.year - year) * 10);
+  return score;
+}
+
+/** Identify an untyped CSV row by comparing the movie and series catalogues. */
+export async function identifyMedia(
+  title: string,
+  year?: number | null,
+): Promise<{ mediaType: MediaType; meta: MovieMeta } | null> {
+  const [movie, series] = await Promise.all([
+    lookupMovie(title, year, "movie"),
+    lookupMovie(title, year, "series"),
+  ]);
+  const movieScore = matchConfidence(movie, title, year);
+  const seriesScore = matchConfidence(series, title, year);
+  if (movieScore < 0 && seriesScore < 0) return null;
+  if (seriesScore > movieScore && series) return { mediaType: "series", meta: series };
+  return movie ? { mediaType: "movie", meta: movie } : series ? { mediaType: "series", meta: series } : null;
+}
+
 /** Resolve many titles with bounded concurrency. */
 export async function lookupMany(
   items: { title: string; year?: number | null; type?: MediaType }[],
