@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { lookupMany, classifyMany, type MediaType } from "./movie-meta.server";
+import { lookupMany, lookupPosters, classifyMany, type MediaType } from "./movie-meta.server";
 import type { ImportRow } from "./movies.schema";
 
 type Client = SupabaseClient<Database>;
