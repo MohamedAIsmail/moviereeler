@@ -94,7 +94,7 @@ export async function insertLibraryRows(
 export async function enrichLibraryPosters(
   supabase: Client,
   userId: string,
-  batchSize = 18,
+  batchSize = 60,
 ): Promise<{ updated: number; remaining: number }> {
   const { data, error } = await supabase
     .from("watched_movies")
@@ -107,28 +107,25 @@ export async function enrichLibraryPosters(
   const pending = data ?? [];
   if (pending.length === 0) return { updated: 0, remaining: 0 };
 
-  const metas = await lookupMany(
+  const metas = await lookupPosters(
     pending.map((row) => ({
       title: row.title,
       year: row.year,
       type: (row.media_type === "series" ? "series" : "movie") as MediaType,
     })),
+    24,
   );
 
   let updated = 0;
   await Promise.all(
     pending.map(async (row, index) => {
       const meta = metas[index];
-      const posterUrl = meta?.posterUrl;
-      if (!posterUrl) {
-        await supabase.from("watched_movies").update({ poster_url: "" }).eq("id", row.id);
-        return;
-      }
+      const posterUrl = meta?.posterUrl ?? "";
       const { error: updateError } = await supabase
         .from("watched_movies")
         .update({ poster_url: posterUrl, imdb_id: meta?.imdbId ?? null })
         .eq("id", row.id);
-      if (!updateError) updated++;
+      if (!updateError && posterUrl) updated++;
     }),
   );
 
@@ -140,3 +137,4 @@ export async function enrichLibraryPosters(
 
   return { updated, remaining: count ?? 0 };
 }
+
