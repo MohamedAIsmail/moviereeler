@@ -135,6 +135,58 @@ export async function lookupMovie(
   };
 }
 
+/**
+ * Poster-only resolution: one catalog search per title (no /meta round-trip),
+ * with de-duplication and an in-process cache. Much faster than lookupMany
+ * when we only need poster + imdb id.
+ */
+const posterCache = new Map<string, { posterUrl: string | null; imdbId: string | null }>();
+
+export async function lookupPosters(
+  items: { title: string; year?: number | null; type?: MediaType }[],
+  concurrency = 20,
+): Promise<{ posterUrl: string | null; imdbId: string | null }[]> {
+  const cacheKey = (i: { title: string; year?: number | null; type?: MediaType }) =>
+    `${i.type ?? "movie"}|${normalize(i.title)}|${i.year ?? ""}`;
+
+  const unique = new Map<string, { title: string; year?: number | null; type?: MediaType }>();
+  for (const item of items) {
+    const k = cacheKey(item);
+    if (!posterCache.has(k) && !unique.has(k)) unique.set(k, item);
+  }
+
+  const pending = [...unique.entries()];
+  let cursor = 0;
+  async function worker() {
+    while (cursor < pending.length) {
+      const [k, item] = pending[cursor++]!;
+      const results = await searchMovies(item.title, 5, item.type ?? "movie");
+      let best: MovieMeta | null = null;
+      let bestScore = -1;
+      for (const meta of results) {
+        const score = calculateScore(item.title, item.year ?? null, meta);
+        if (score > bestScore) {
+          bestScore = score;
+          best = meta;
+        }
+      }
+      posterCache.set(k, {
+        posterUrl: best?.posterUrl ?? null,
+        imdbId: best?.imdbId ?? null,
+      });
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, pending.length) }, worker),
+  );
+
+  if (posterCache.size > 5000) posterCache.clear();
+
+  return items.map(
+    (item) => posterCache.get(cacheKey(item)) ?? { posterUrl: null, imdbId: null },
+  );
+}
+
 /** Resolve many titles with bounded concurrency. */
 export async function lookupMany(
   items: { title: string; year?: number | null; type?: MediaType }[],

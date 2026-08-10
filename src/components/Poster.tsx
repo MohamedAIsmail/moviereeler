@@ -21,6 +21,7 @@ export function Poster({ title, year, posterUrl, className }: PosterProps) {
           src={posterUrl}
           alt={`${title} poster`}
           loading="lazy"
+          decoding="async"
           className="size-full object-cover"
         />
       ) : (

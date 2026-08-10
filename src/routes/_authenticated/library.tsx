@@ -88,15 +88,19 @@ function LibraryPage() {
     if (!missingPosters) return;
     let cancelled = false;
     void (async () => {
-      const result = await runEnrich({});
-      if (!cancelled && result.updated >= 0) {
+      // Keep pulling batches until every poster is resolved.
+      for (let pass = 0; pass < 40 && !cancelled; pass++) {
+        const result = await runEnrich({});
+        if (cancelled) return;
         void queryClient.invalidateQueries({ queryKey: ["library"] });
+        if (result.remaining === 0) return;
       }
     })();
     return () => {
       cancelled = true;
     };
   }, [missingPosters, runEnrich, queryClient]);
+
 
   const importMutation = useMutation({
     mutationFn: async ({ file, autoDetect }: { file: File; autoDetect: boolean }) => {
