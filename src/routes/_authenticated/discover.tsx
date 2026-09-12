@@ -22,13 +22,15 @@ export const Route = createFileRoute("/_authenticated/discover")({
       { title: "Discover · Reeler" },
       {
         name: "description",
-        content: "Film and series picks reasoned from your own ratings, with a match score.",
+        content: "Find movies and series picked from what you already enjoy.",
       },
       { property: "og:title", content: "Discover · Reeler" },
       {
         property: "og:description",
-        content: "Film and series picks reasoned from your own ratings, with a match score.",
+        content: "Find movies and series picked from what you already enjoy.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: DiscoverPage,
@@ -58,7 +60,7 @@ function DiscoverPage() {
   const generateMutation = useMutation({
     mutationFn: () => generate({ data: { mood: mood.trim() || null, mediaType } }),
     onSuccess: (result) => {
-      toast.success(`${result.count} fresh picks ready`);
+      toast.success(`${result.count} new recommendations are ready`);
       void queryClient.invalidateQueries({ queryKey: ["recommendations", mediaType] });
     },
     onError: (error: Error) => toast.error(error.message),
@@ -75,14 +77,14 @@ function DiscoverPage() {
     <AppShell>
       <section className="rounded-3xl border border-border/70 bg-card p-6 shadow-lift sm:p-8">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">
-          Taste engine
+          Made for you
         </p>
         <h1 className="mt-3 font-display text-3xl font-bold sm:text-4xl">
-          What should you watch tonight?
+          What are you in the mood for?
         </h1>
         <p className="mt-2 max-w-xl text-sm text-muted-foreground">
-          Reeler reads your ratings — including the {copy.plural} you disliked — and builds a slate
-          of bullseyes, adjacent discoveries and a couple of genuine stretches.
+          Tell us what sounds good, or leave it blank. We’ll use your ratings to find {copy.plural}
+          you’re likely to enjoy.
         </p>
 
         <div className="mt-6">
@@ -93,7 +95,7 @@ function DiscoverPage() {
           <Input
             value={mood}
             onChange={(event) => setMood(event.target.value)}
-            placeholder="Optional: a mood, e.g. 'slow, melancholy, under two hours'"
+            placeholder="Optional: something slow, funny, or under two hours"
           />
           <Button
             className="sm:w-auto"
@@ -105,15 +107,15 @@ function DiscoverPage() {
             ) : (
               <Sparkles className="size-4" />
             )}
-            {items.length ? "Refresh picks" : "Generate picks"}
+            {items.length ? "Find new picks" : "Find something to watch"}
           </Button>
         </div>
 
         {libraryCount < 3 && (
           <p className="mt-3 text-sm text-muted-foreground">
-            Add at least 3 {copy.plural} first —{" "}
+            Add at least 3 {copy.plural} so we have enough to go on —{" "}
             <Link to="/library" className="font-medium text-primary underline-offset-4 hover:underline">
-              import your library
+              go to your library
             </Link>
             .
           </p>
@@ -127,7 +129,7 @@ function DiscoverPage() {
         </div>
       ) : items.length === 0 ? (
         <p className="mt-12 text-center text-sm text-muted-foreground">
-          No picks yet. Generate a slate when you're ready.
+          No recommendations yet. When you’re ready, we’ll find some for you.
         </p>
       ) : (
         <ul className="mt-8 space-y-4">
@@ -185,7 +187,7 @@ function DiscoverPage() {
                     onClick={() => void updateStatus(item.id, "dismissed")}
                   >
                     <X className="size-4" />
-                    Not for me
+                    Skip
                   </Button>
                 </div>
               </div>
