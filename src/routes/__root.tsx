@@ -79,11 +79,11 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Reeler — Movie recommendations that actually know your taste" },
+      { title: "Reeler — Find your next movie" },
       {
         name: "description",
         content:
-          "Import your watch history and get film recommendations built from your real ratings, not generic genre matching.",
+          "Bring your watch history to Reeler and find movies and series you’ll enjoy.",
       },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },

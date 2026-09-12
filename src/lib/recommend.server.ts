@@ -179,8 +179,8 @@ export async function refreshRecommendations(
   if (library.length < 3) {
     throw new Error(
       mediaType === "series"
-        ? "Add at least 3 series to your library first — the engine needs signal."
-        : "Add at least 3 films to your library first — the engine needs signal.",
+        ? "Add at least 3 series to your library first so we can learn what you like."
+        : "Add at least 3 movies to your library first so we can learn what you like.",
     );
   }
 
@@ -200,7 +200,7 @@ export async function refreshRecommendations(
 
   const profile = buildTasteProfile(library);
   const slate = await generateSlate(profile, exclude, mood, mediaType);
-  if (slate.length === 0) throw new Error("The engine returned nothing — please try again.");
+  if (slate.length === 0) throw new Error("We couldn’t find any recommendations. Please try again.");
 
   const metas = await lookupMany(
     slate.map((item) => ({ title: item.title, year: item.year, type: mediaType })),

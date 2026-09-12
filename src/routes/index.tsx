@@ -7,18 +7,20 @@ import { Button } from "@/components/ui/button";
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Reeler — Movie recommendations that know your taste" },
+      { title: "Reeler — Find your next movie" },
       {
         name: "description",
         content:
-          "Import your Letterboxd history and get film picks reasoned from your own ratings, with an explanation for every recommendation.",
+          "Bring your watch history to Reeler and get movie and series recommendations based on your ratings.",
       },
-      { property: "og:title", content: "Reeler — Movie recommendations that know your taste" },
+      { property: "og:title", content: "Reeler — Find your next movie" },
       {
         property: "og:description",
         content:
-          "Import your Letterboxd history and get film picks reasoned from your own ratings.",
+          "Bring your watch history to Reeler and find movies and series you’ll enjoy.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: Landing,
@@ -27,18 +29,18 @@ export const Route = createFileRoute("/")({
 const FEATURES = [
   {
     icon: FileUp,
-    title: "Import in one drop",
-    body: "Bring your Letterboxd export or any CSV. Thousands of films, ratings and dates land in seconds.",
+    title: "Bring your watch history",
+    body: "Upload your IMDb or Letterboxd CSV once. We’ll bring over your titles, ratings, and dates.",
   },
   {
     icon: Target,
-    title: "Reads your dislikes too",
-    body: "Low ratings are the sharpest signal there is. Reeler uses them to rule things out, not just in.",
+    title: "Your ratings matter",
+    body: "What you didn’t enjoy matters too. It helps Reeler avoid recommending more of the same.",
   },
   {
     icon: Sparkles,
-    title: "Every pick is argued",
-    body: "Each recommendation names a film you already rated and explains the exact thread connecting them.",
+    title: "Know what you’re choosing",
+    body: "Every recommendation comes with a clear summary and a match score, so you can decide quickly.",
   },
 ];
 
@@ -64,21 +66,19 @@ function Landing() {
       <main className="mx-auto w-full max-w-5xl px-5">
         <section className="py-20 sm:py-32">
           <p className="text-xs font-semibold uppercase tracking-[0.25em] text-primary">
-            For people with taste
+            Less scrolling. More watching.
           </p>
           <h1 className="mt-5 max-w-3xl font-display text-4xl font-bold leading-[1.05] sm:text-6xl">
-            Recommendations built from{" "}
-            <span className="text-gradient-ember">the films you already love</span>.
+            Find your next movie without the endless search.
           </h1>
           <p className="mt-6 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Import your watch history once. Reeler infers the tone, pacing and directorial
-            sensibilities behind your ratings, then hands you a slate worth your evening — each pick
-            with a reason.
+            Add the movies and series you’ve watched, rate them, and Reeler will find something you’re
+            likely to enjoy next.
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Button asChild size="lg">
               <Link to={signedIn ? "/discover" : "/auth"}>
-                {signedIn ? "Open Reeler" : "Start free"}
+                {signedIn ? "See my picks" : "Get started"}
               </Link>
             </Button>
             <Button asChild size="lg" variant="secondary">
@@ -105,7 +105,7 @@ function Landing() {
       </main>
 
       <footer className="border-t border-border/60 py-8 text-center text-xs text-muted-foreground">
-        Reeler — your taste, taken seriously.
+         Made for movie nights.
       </footer>
     </div>
   );

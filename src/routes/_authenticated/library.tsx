@@ -48,13 +48,15 @@ export const Route = createFileRoute("/_authenticated/library")({
       { title: "Your library · Reeler" },
       {
         name: "description",
-        content: "Every film and series you've logged, imported from a CSV or added by hand.",
+        content: "Keep your movies, series, ratings, and saved picks together.",
       },
       { property: "og:title", content: "Your library · Reeler" },
       {
         property: "og:description",
-        content: "Every film and series you've logged, imported from a CSV or added by hand.",
+        content: "Keep your movies, series, ratings, and saved picks together.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: LibraryPage,
@@ -139,8 +141,7 @@ function LibraryPage() {
         <div>
           <h1 className="font-display text-3xl font-bold sm:text-4xl">Your library</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            {movies.length} {movies.length === 1 ? copy.singular : copy.plural} logged — the raw
-            material for every recommendation.
+            {movies.length} {movies.length === 1 ? copy.singular : copy.plural} in your library.
           </p>
         </div>
 
@@ -176,7 +177,7 @@ function LibraryPage() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>Remove every {copy.singular}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    This deletes all {movies.length} {copy.plural} from your library. Your{" "}
+                     This removes all {movies.length} {copy.plural} from your library. Your{" "}
                     {mediaType === "movie" ? "series" : "movies"} and saved picks stay put. This
                     can't be undone.
                   </AlertDialogDescription>
@@ -211,7 +212,7 @@ function LibraryPage() {
           <Input
             value={filter}
             onChange={(event) => setFilter(event.target.value)}
-            placeholder={`Filter your ${copy.plural}`}
+            placeholder={`Search your ${copy.plural}`}
             className="pl-9"
           />
         </div>
@@ -223,10 +224,10 @@ function LibraryPage() {
         </div>
       ) : movies.length === 0 ? (
         <div className="mt-10 rounded-2xl border border-dashed border-border p-10 text-center">
-          <h2 className="font-display text-lg font-semibold">No {copy.plural} logged yet</h2>
+          <h2 className="font-display text-lg font-semibold">Your {copy.singular} library is empty</h2>
           <p className="mx-auto mt-2 max-w-sm text-sm text-muted-foreground">
-            Import a CSV export (title, year and rating columns) or add {copy.plural} by hand — the
-            engine gets to work immediately.
+            Import a CSV file or add {copy.plural} one at a time. Ratings help us make better
+            recommendations.
           </p>
           <Button className="mt-6" onClick={() => setImportOpen(true)}>
             <Upload className="size-4" />
@@ -350,7 +351,7 @@ function SavedPicks({ mediaType }: { mediaType: MediaType }) {
         <span className="text-sm text-muted-foreground">({saved.length})</span>
       </div>
       <p className="mt-1 text-sm text-muted-foreground">
-        Recommendations you kept — mark one as watched to fold it into your library.
+        {copy.label} you saved for later. If you’ve watched one, add it to your library.
       </p>
 
       <ul className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
@@ -430,9 +431,8 @@ function ImportDialog({
         <DialogHeader>
           <DialogTitle>Import movies and series</DialogTitle>
           <DialogDescription>
-            Upload one IMDb, Letterboxd, or generic CSV. Title Type/Media Type is used when
-            available; otherwise each title is identified automatically. Personal ratings are
-            normalized to a 10-point scale.
+            Choose a CSV from IMDb, Letterboxd, or another app. We’ll sort movies and series for you
+            and keep your ratings on a 10-point scale.
           </DialogDescription>
         </DialogHeader>
 
@@ -448,11 +448,11 @@ function ImportDialog({
                 htmlFor="auto-detect"
                 className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70"
               >
-                Auto-detect media type
+                 Sort movies and series automatically
               </label>
               <p className="text-xs text-muted-foreground">
-                Differentiates movies vs series using metadata. If unchecked, all rows go to{" "}
-                {copy.plural.toLowerCase()}.
+                 Leave this on for a mixed file. Turn it off to import everything as{" "}
+                 {copy.plural.toLowerCase()}.
               </p>
             </div>
           </div>
@@ -466,7 +466,7 @@ function ImportDialog({
             <span className="text-sm font-medium">
               {pending ? "Importing…" : "Choose a CSV file"}
             </span>
-            <span className="text-xs text-muted-foreground">Up to 4,000 rows per import</span>
+            <span className="text-xs text-muted-foreground">You can import up to 4,000 titles at once</span>
             <input
               type="file"
               accept=".csv,text/csv"
@@ -542,7 +542,7 @@ function AddMovieDialog({
         <DialogHeader>
           <DialogTitle>Add a {copy.singular.toLowerCase()}</DialogTitle>
           <DialogDescription>
-            Search the global catalog to add a {copy.singular.toLowerCase()} to your library.
+             Search by title, then add the right match to your library.
           </DialogDescription>
         </DialogHeader>
 
@@ -550,7 +550,7 @@ function AddMovieDialog({
           <Input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Search for a ${copy.singular.toLowerCase()}...`}
+             placeholder={`Search for a ${copy.singular.toLowerCase()}`}
             className="flex-1"
           />
           <Button type="submit" disabled={searching || !query.trim()}>
@@ -589,7 +589,7 @@ function AddMovieDialog({
             </li>
           ))}
           {results.length === 0 && !searching && query && (
-            <p className="py-10 text-center text-sm text-muted-foreground">No matches found.</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">We couldn’t find that title.</p>
           )}
         </ul>
       </DialogContent>

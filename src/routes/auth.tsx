@@ -14,13 +14,15 @@ export const Route = createFileRoute("/auth")({
       { title: "Sign in · Reeler" },
       {
         name: "description",
-        content: "Sign in to Reeler to import your watch history and get personal film picks.",
+        content: "Sign in to keep your watch history and recommendations in one place.",
       },
       { property: "og:title", content: "Sign in · Reeler" },
       {
         property: "og:description",
-        content: "Sign in to Reeler to import your watch history and get personal film picks.",
+        content: "Sign in to keep your watch history and recommendations in one place.",
       },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
   component: AuthPage,
@@ -96,7 +98,7 @@ function AuthPage() {
               {mode === "signin" ? "Welcome back" : "Create your account"}
             </h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Your library and picks sync across every device.
+              Your library and saved picks will be here on any device.
             </p>
 
             <Button
