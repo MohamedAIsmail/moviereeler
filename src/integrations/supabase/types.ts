@@ -14,6 +14,48 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_usage: {
+        Row: {
+          created_at: string
+          id: string
+          ip_hash: string | null
+          kind: string
+          user_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          kind?: string
+          user_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          ip_hash?: string | null
+          kind?: string
+          user_id?: string | null
+        }
+        Relationships: []
+      }
+      demo_cache: {
+        Row: {
+          created_at: string
+          key: string
+          result: Json
+        }
+        Insert: {
+          created_at?: string
+          key: string
+          result: Json
+        }
+        Update: {
+          created_at?: string
+          key?: string
+          result?: Json
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -41,6 +83,7 @@ export type Database = {
       recommendations: {
         Row: {
           created_at: string
+          feedback: number | null
           genres: string[] | null
           id: string
           imdb_id: string | null
@@ -56,6 +99,7 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          feedback?: number | null
           genres?: string[] | null
           id?: string
           imdb_id?: string | null
@@ -71,6 +115,7 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          feedback?: number | null
           genres?: string[] | null
           id?: string
           imdb_id?: string | null
