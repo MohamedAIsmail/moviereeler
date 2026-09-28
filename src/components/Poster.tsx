@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Film } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -9,6 +10,8 @@ interface PosterProps {
 }
 
 export function Poster({ title, year, posterUrl, className }: PosterProps) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const showImage = !!posterUrl && failedUrl !== posterUrl;
   return (
     <div
       className={cn(
@@ -16,12 +19,13 @@ export function Poster({ title, year, posterUrl, className }: PosterProps) {
         className,
       )}
     >
-      {posterUrl ? (
+      {showImage ? (
         <img
           src={posterUrl}
           alt={`${title} poster`}
           loading="lazy"
           decoding="async"
+          onError={() => setFailedUrl(posterUrl)}
           className="size-full object-cover"
         />
       ) : (
