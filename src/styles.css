@@ -9,7 +9,9 @@
  * Headings: Space Grotesk. Body: DM Sans.
  * All colors are oklch semantic tokens. Never hardcode colors in components.
  */
-
+#lovable-badge {
+  display: none !important;
+}
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -153,9 +155,6 @@
 
 @utility grain-surface {
   background-color: var(--color-surface);
-  background-image: radial-gradient(
-    oklch(1 0 0 / 0.02) 1px,
-    transparent 1px
-  );
+  background-image: radial-gradient(oklch(1 0 0 / 0.02) 1px, transparent 1px);
   background-size: 4px 4px;
 }
