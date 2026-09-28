@@ -1,6 +1,6 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Clapperboard, Library, Sparkles, LogOut } from "lucide-react";
+import { Clapperboard, Library, Sparkles, LogOut, UserRound } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 const NAV = [
   { to: "/discover", label: "Discover", icon: Sparkles },
   { to: "/library", label: "Library", icon: Library },
+  { to: "/account", label: "Account", icon: UserRound },
 ] as const;
 
 export function AppShell({ children }: { children: React.ReactNode }) {

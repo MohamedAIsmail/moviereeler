@@ -3,6 +3,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Clapperboard, FileUp, Sparkles, Target } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
+import { SiteFooter } from "@/components/LegalPage";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -77,12 +78,16 @@ function Landing() {
           </p>
           <div className="mt-9 flex flex-wrap gap-3">
             <Button asChild size="lg">
-              <Link to={signedIn ? "/discover" : "/auth"}>
-                {signedIn ? "See my picks" : "Get started"}
+              <Link to={signedIn ? "/discover" : "/try"}>
+                {signedIn ? "See my picks" : "Try it free — no account"}
               </Link>
             </Button>
             <Button asChild size="lg" variant="secondary">
-              <Link to={signedIn ? "/library" : "/auth"}>Import your library</Link>
+              {signedIn ? (
+                <Link to="/library">Import your library</Link>
+              ) : (
+                <Link to="/auth">Create an account</Link>
+              )}
             </Button>
           </div>
         </section>
@@ -104,9 +109,7 @@ function Landing() {
         </section>
       </main>
 
-      <footer className="border-t border-border/60 py-8 text-center text-xs text-muted-foreground">
-         Made for movie nights.
-      </footer>
+      <SiteFooter />
     </div>
   );
 }
