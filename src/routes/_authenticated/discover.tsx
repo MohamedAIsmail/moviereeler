@@ -68,6 +68,11 @@ function DiscoverPage() {
 
   const items = recs.data ?? [];
 
+  async function rate(id: string, value: 1 | -1 | null) {
+    await sendFeedback({ data: { id, feedback: value } });
+    void queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+  }
+
   async function updateStatus(id: string, status: "saved" | "dismissed") {
     await setStatus({ data: { id, status } });
     void queryClient.invalidateQueries({ queryKey: ["recommendations"] });
@@ -179,6 +184,22 @@ function DiscoverPage() {
                   >
                     <Bookmark className="size-4" />
                     Save
+                  </Button>
+                  <Button
+                    variant={item.feedback === 1 ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-label="Good pick"
+                    onClick={() => void rate(item.id, item.feedback === 1 ? null : 1)}
+                  >
+                    <ThumbsUp className={item.feedback === 1 ? "size-4 text-primary" : "size-4"} />
+                  </Button>
+                  <Button
+                    variant={item.feedback === -1 ? "secondary" : "ghost"}
+                    size="sm"
+                    aria-label="Not for me"
+                    onClick={() => void rate(item.id, item.feedback === -1 ? null : -1)}
+                  >
+                    <ThumbsDown className={item.feedback === -1 ? "size-4 text-primary" : "size-4"} />
                   </Button>
                   <Button
                     variant="ghost"

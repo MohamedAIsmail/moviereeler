@@ -64,6 +64,8 @@ export const generateRecommendations = createServerFn({ method: "POST" })
       .parse(input ?? {}),
   )
   .handler(async ({ data, context }) => {
+    const { enforceLimit } = await import("./usage.server");
+    await enforceLimit({ userId: context.userId }, "recommend", 15);
     const { refreshRecommendations } = await import("./recommend.server");
     return refreshRecommendations(
       context.supabase,
@@ -80,6 +82,21 @@ export const setRecommendationStatus = createServerFn({ method: "POST" })
     const { error } = await context.supabase
       .from("recommendations")
       .update({ status: data.status })
+      .eq("id", data.id)
+      .eq("user_id", context.userId);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const setRecommendationFeedback = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ id: z.string().uuid(), feedback: z.union([z.literal(1), z.literal(-1), z.null()]) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("recommendations")
+      .update({ feedback: data.feedback })
       .eq("id", data.id)
       .eq("user_id", context.userId);
     if (error) throw new Error(error.message);
