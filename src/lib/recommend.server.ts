@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
-import { lookupMany, type MediaType } from "./movie-meta.server";
+import type { MediaType } from "./movie-meta.server";
 import { fetchLibrary, type WatchedMovie } from "./movies.server";
 
 type Client = SupabaseClient<Database>;
@@ -266,12 +266,8 @@ export async function refreshRecommendations(
   ].slice(0, 700);
 
   const profile = buildTasteProfile(library);
-  const slate = await generateSlate(profile, exclude, mood, mediaType);
-  if (slate.length === 0) throw new Error("We couldn’t find any recommendations. Please try again.");
-
-  const metas = await lookupMany(
-    slate.map((item) => ({ title: item.title, year: item.year, type: mediaType })),
-  );
+  const resolved = await generateResolvedPicks(profile, exclude, mood, mediaType, 12);
+  if (resolved.length === 0) throw new Error("We couldn’t find any recommendations. Please try again.");
 
   await supabase
     .from("recommendations")
@@ -280,18 +276,18 @@ export async function refreshRecommendations(
     .eq("status", "new")
     .eq("media_type", mediaType);
 
-  const rows = slate.map((item, index) => {
-    const meta = metas[index];
+  const rows = resolved.map((item) => {
+    const meta = item.meta;
     return {
       user_id: userId,
-      title: item.title,
-      year: item.year ?? null,
+      title: meta.title || item.title,
+      year: meta.year ?? item.year ?? null,
       reason: item.reason,
       match_score: Math.min(99, Math.max(1, Math.round(item.matchScore))),
-      poster_url: meta?.posterUrl ?? null,
-      overview: meta?.overview ?? null,
-      genres: meta?.genres ?? [],
-      imdb_id: meta?.imdbId ?? null,
+      poster_url: meta.posterUrl,
+      overview: meta.overview,
+      genres: meta.genres,
+      imdb_id: meta.imdbId,
       media_type: mediaType,
       status: "new",
     };

@@ -76,26 +76,24 @@ export const demoRecommend = createServerFn({ method: "POST" })
       averageRating: null,
     };
     try {
-      const slate = (
-        await generateSlate(
-          profile,
-          data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`),
-          null,
-          data.mediaType,
-        )
-      )
-        .sort((a, b) => b.matchScore - a.matchScore)
-        .slice(0, 3);
-      const metas = await lookupMany(
-        slate.map((s) => ({ title: s.title, year: s.year, type: data.mediaType })),
+      const { generateResolvedPicks } = await import("./recommend.server");
+      const resolved = await generateResolvedPicks(
+        profile,
+        data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`),
+        null,
+        data.mediaType,
+        3,
       );
-      const picks = slate.map((s, i) => ({
-        title: s.title,
-        year: s.year ?? null,
+      if (resolved.length < 3) {
+        return { picks: [], error: "We couldn’t find picks right now. Please try again." };
+      }
+      const picks: DemoPick[] = resolved.map((s) => ({
+        title: s.meta.title || s.title,
+        year: s.meta.year ?? s.year ?? null,
         matchScore: Math.min(99, Math.max(1, Math.round(s.matchScore))),
-        posterUrl: metas[i]?.posterUrl ?? null,
-        overview: metas[i]?.overview ?? null,
-        genres: metas[i]?.genres ?? [],
+        posterUrl: s.meta.posterUrl,
+        overview: s.meta.overview,
+        genres: s.meta.genres,
       }));
       await cacheSet(key, picks);
       return { picks };
