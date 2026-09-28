@@ -2,7 +2,7 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Bookmark, Loader2, Sparkles, X } from "lucide-react";
+import { Bookmark, Loader2, Sparkles, X, ThumbsUp, ThumbsDown } from "lucide-react";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { MediaToggle, type MediaType, copyFor } from "@/components/MediaToggle";
@@ -14,6 +14,7 @@ import {
   generateRecommendations,
   listRecommendations,
   setRecommendationStatus,
+  setRecommendationFeedback,
 } from "@/lib/recommend.functions";
 
 export const Route = createFileRoute("/_authenticated/discover")({
@@ -42,6 +43,7 @@ function DiscoverPage() {
   const fetchLibrary = useServerFn(listLibrary);
   const generate = useServerFn(generateRecommendations);
   const setStatus = useServerFn(setRecommendationStatus);
+  const sendFeedback = useServerFn(setRecommendationFeedback);
 
   const [mediaType, setMediaType] = useState<MediaType>("movie");
   const copy = copyFor(mediaType);
