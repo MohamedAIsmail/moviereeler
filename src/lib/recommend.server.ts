@@ -97,11 +97,70 @@ For each pick, the "reason" must name at least one specific title from THEIR lis
 matchScore is your honest confidence from 60-99. Do not inflate — the stretches should score lower than the bullseyes.`;
 }
 
-interface RawRecommendation {
+export interface RawRecommendation {
   title: string;
   year: number;
+  original_title: string | null;
+  imdb_id: string | null;
   reason: string;
   matchScore: number;
+}
+
+export interface ResolvedPick extends RawRecommendation {
+  meta: import("./movie-meta.server").MovieMeta;
+}
+
+/**
+ * Resolve picks against the catalog; drop ones with no poster AND no overview
+ * (or missing either), then ask the AI for replacements up to `retries` times.
+ */
+export async function generateResolvedPicks(
+  profile: TasteProfile,
+  exclude: string[],
+  mood: string | null,
+  mediaType: MediaType,
+  want: number,
+  retries = 2,
+): Promise<ResolvedPick[]> {
+  const { resolvePick } = await import("./movie-meta.server");
+  const out: ResolvedPick[] = [];
+  const shown = [...exclude];
+  const key = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const seen = new Set<string>();
+
+  for (let attempt = 0; attempt <= retries && out.length < want; attempt++) {
+    const slate = (await generateSlate(profile, shown, mood, mediaType))
+      .filter((s) => !seen.has(key(s.title)))
+      .sort((a, b) => b.matchScore - a.matchScore);
+    for (const s of slate) seen.add(key(s.title));
+    shown.push(...slate.map((s) => `${s.title}${s.year ? ` (${s.year})` : ""}`));
+
+    const candidates = slate.slice(0, Math.max(want - out.length + 3, want * 2));
+    let cursor = 0;
+    const resolved: (ResolvedPick | null)[] = new Array(candidates.length).fill(null);
+    await Promise.all(
+      Array.from({ length: Math.min(6, candidates.length) }, async () => {
+        while (cursor < candidates.length) {
+          const i = cursor++;
+          const s = candidates[i]!;
+          const meta = await resolvePick(
+            { title: s.title, year: s.year, originalTitle: s.original_title, imdbId: s.imdb_id },
+            mediaType,
+          );
+          if (meta?.posterUrl && meta.overview) resolved[i] = { ...s, meta };
+          else
+            console.warn(
+              `[recommend] unresolved ${mediaType}: "${s.title}" (${s.year})` +
+                (s.original_title ? ` orig="${s.original_title}"` : "") +
+                (s.imdb_id ? ` imdb=${s.imdb_id}` : "") +
+                ` poster=${!!meta?.posterUrl} overview=${!!meta?.overview}`,
+            );
+        }
+      }),
+    );
+    for (const r of resolved) if (r && out.length < want) out.push(r);
+  }
+  return out;
 }
 
 export async function generateSlate(
@@ -140,12 +199,20 @@ export async function generateSlate(
                   type: "object",
                   additionalProperties: false,
                   properties: {
-                    title: { type: "string" },
+                    title: { type: "string", description: "Common English release title" },
                     year: { type: "integer" },
+                    original_title: {
+                      type: ["string", "null"],
+                      description: "Original-language title if non-English, else null",
+                    },
+                    imdb_id: {
+                      type: ["string", "null"],
+                      description: "IMDb id like tt1234567 only if certain, else null",
+                    },
                     reason: { type: "string" },
                     matchScore: { type: "integer" },
                   },
-                  required: ["title", "year", "reason", "matchScore"],
+                  required: ["title", "year", "original_title", "imdb_id", "reason", "matchScore"],
                 },
               },
             },
