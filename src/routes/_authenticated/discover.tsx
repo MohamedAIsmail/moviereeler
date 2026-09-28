@@ -140,7 +140,7 @@ function DiscoverPage() {
         </p>
       ) : (
         <ul className="mt-8 space-y-4">
-          {items.map((item) => (
+          {items.filter((item) => item.poster_url || item.overview).map((item) => (
             <li
               key={item.id}
               className="flex gap-4 rounded-2xl border border-border/70 bg-card p-4 transition-shadow hover:shadow-glow sm:gap-6 sm:p-5"

@@ -243,3 +243,41 @@ export async function classifyMany(
   await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
   return results;
 }
+
+/**
+ * Resolve an AI pick against the catalog, stopping at the first match:
+ * a) imdb id  b) English title + year(±1)  c) original title + year(±1)
+ * d) title without leading "The"/"A"/"An" + year(±1)
+ */
+export async function resolvePick(
+  pick: { title: string; year?: number | null; originalTitle?: string | null; imdbId?: string | null },
+  type: MediaType = "movie",
+): Promise<MovieMeta | null> {
+  const year = pick.year ?? null;
+  const yearOk = (m: MovieMeta) => !year || !m.year || Math.abs(m.year - year) <= 1;
+
+  if (pick.imdbId && /^tt\d+$/.test(pick.imdbId)) {
+    const meta = await getMetaById(pick.imdbId, type);
+    if (meta && (meta.posterUrl || meta.overview) && yearOk(meta)) return meta;
+  }
+
+  const stripped = pick.title.replace(/^(the|a|an)\s+/i, "").trim();
+  const queries = [pick.title, pick.originalTitle ?? "", stripped !== pick.title ? stripped : ""]
+    .map((q) => q.trim())
+    .filter(Boolean);
+
+  for (const q of queries) {
+    const results = await searchMovies(q, 10, type);
+    const match = results.find(yearOk);
+    if (!match) continue;
+    if (!match.imdbId) return match;
+    const full = await getMetaById(match.imdbId, type);
+    return {
+      ...match,
+      overview: full?.overview ?? match.overview,
+      genres: full?.genres.length ? full.genres : match.genres,
+      posterUrl: match.posterUrl ?? full?.posterUrl ?? null,
+    };
+  }
+  return null;
+}
