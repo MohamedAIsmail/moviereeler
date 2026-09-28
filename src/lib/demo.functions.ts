@@ -57,8 +57,6 @@ export const demoRecommend = createServerFn({ method: "POST" })
       return { picks: [], error: (e as Error).message };
     }
 
-    const { generateSlate } = await import("./recommend.server");
-    const { lookupMany } = await import("./movie-meta.server");
     const loved = data.picks.map((p) => ({
       id: "",
       title: p.title,

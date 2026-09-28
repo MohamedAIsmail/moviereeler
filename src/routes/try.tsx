@@ -167,7 +167,7 @@ function TryPage() {
           <section className="mt-10">
             <h2 className="font-display text-2xl font-semibold">You might enjoy</h2>
             <ul className="mt-4 space-y-4">
-              {slate.map((item) => (
+              {slate.filter((item) => item.posterUrl || item.overview).map((item) => (
                 <li
                   key={item.title}
                   className="flex gap-4 rounded-2xl border border-border/70 bg-card p-4 sm:gap-6 sm:p-5"
