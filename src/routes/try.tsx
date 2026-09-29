@@ -57,6 +57,8 @@ function TryPage() {
   const [refine, setRefine] = useState<RefineKey | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [genError, setGenError] = useState<{ message: string; limit: boolean } | null>(null);
+  const retryRef = useRef<null | (() => void)>(null);
 
   const noun = mediaType === "series" ? "series" : "movies";
 
