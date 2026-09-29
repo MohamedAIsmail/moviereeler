@@ -115,26 +115,35 @@ function TryPage() {
   const label = (p: { title: string; year: number | null }) =>
     `${p.title}${p.year ? ` (${p.year})` : ""}`;
 
+  const GENERIC = "Something went wrong — try again";
+
   /** Fill the given (skeleton) slots: one fast AI call, then resolve each pick in parallel. */
   async function fill(keys: string[], opts: { refine: RefineKey | null; exclude: string[] }) {
     const dropSlots = () => setSlate((s) => s.filter((x) => !keys.includes(x.key) || x.pick));
+    setGenError(null);
     let res: Awaited<ReturnType<typeof getCandidates>>;
     try {
-      res = await getCandidates({
-        data: {
-          mediaType,
-          picks: picked.map((p) => ({ title: p.title, year: p.year })),
-          exclude: opts.exclude.slice(-150),
-          refine: opts.refine,
-          note: note.trim() || null,
-          count: keys.length,
-        },
-      });
+      res = await Promise.race([
+        getCandidates({
+          data: {
+            mediaType,
+            picks: picked.map((p) => ({ title: p.title, year: p.year })),
+            exclude: opts.exclude.slice(-150),
+            refine: opts.refine,
+            note: note.trim() || null,
+            count: keys.length,
+          },
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 30_000)),
+      ]);
     } catch {
-      res = { candidates: [], error: "We couldn’t find picks right now. Please try again." };
+      res = { candidates: [], error: GENERIC, errorCode: "failed" };
     }
     if (res.error || !res.candidates.length) {
-      toast.error(res.error ?? "We couldn’t find picks right now. Please try again.");
+      setGenError({
+        message: res.error ?? GENERIC,
+        limit: res.errorCode === "rate_limit",
+      });
       dropSlots();
       return;
     }
