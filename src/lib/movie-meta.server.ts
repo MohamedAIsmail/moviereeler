@@ -73,18 +73,34 @@ export async function searchMovies(
 ): Promise<MovieMeta[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
-  try {
-    const res = await fetch(
-      `${CINEMETA}/catalog/${type}/top/search=${encodeURIComponent(trimmed)}.json`,
-      { signal: AbortSignal.timeout(8000) },
-    );
-    if (!res.ok) return [];
-    const body = (await res.json()) as { metas?: CinemetaMeta[] };
-    return (body.metas ?? []).slice(0, limit).map(mapMeta);
-  } catch {
-    return [];
+  const key = `${type}|${trimmed.toLowerCase()}`;
+  const hit = searchCache.get(key);
+  if (hit && hit.length) return hit.slice(0, limit);
+  // The catalog is sometimes slow or empty on the first (cold) request —
+  // retry up to twice before giving up so users don't have to search again.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      const res = await fetch(
+        `${CINEMETA}/catalog/${type}/top/search=${encodeURIComponent(trimmed)}.json`,
+        { signal: AbortSignal.timeout(attempt === 0 ? 5000 : 8000) },
+      );
+      if (res.ok) {
+        const body = (await res.json()) as { metas?: CinemetaMeta[] };
+        const list = (body.metas ?? []).map(mapMeta);
+        if (list.length) {
+          if (searchCache.size > 500) searchCache.clear();
+          searchCache.set(key, list);
+          return list.slice(0, limit);
+        }
+      }
+    } catch {
+      // retry
+    }
+    await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
   }
+  return [];
 }
+const searchCache = new Map<string, MovieMeta[]>();
 
 /**
  * Full metadata (synopsis, genres) for an IMDb id.

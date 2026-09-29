@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Ban, Clapperboard, Eye, Loader2, Play, Plus, Search, Sparkles, X } from "lucide-react";
+import { Ban, Check, Clapperboard, Eye, Loader2, Play, Plus, Search, Sparkles, X } from "lucide-react";
 import { RefineBar } from "@/components/RefineBar";
 import { trailerUrl, type RefineKey } from "@/lib/refine";
 import { toast } from "sonner";
@@ -41,6 +41,9 @@ function TryPage() {
   const [results, setResults] = useState<Item[]>([]);
   const [picked, setPicked] = useState<Item[]>([]);
   const [searching, setSearching] = useState(false);
+  const [searched, setSearched] = useState(false);
+  const reqId = useRef(0);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
   const [slate, setSlate] = useState<DemoPick[]>([]);
   const [excluded, setExcluded] = useState<string[]>([]); // shown, seen or rejected this session
@@ -50,20 +53,39 @@ function TryPage() {
 
   const noun = mediaType === "series" ? "series" : "movies";
 
-  async function runSearch(e: React.FormEvent) {
-    e.preventDefault();
-    if (!query.trim()) return;
-    setSearching(true);
-    try {
-      setResults(await search({ data: { query: query.trim(), mediaType } }));
-    } finally {
+  // Search as you type; only the latest request is allowed to update results.
+  useEffect(() => {
+    const q = query.trim();
+    if (q.length < 2) {
+      setResults([]);
+      setSearched(false);
       setSearching(false);
+      return;
     }
-  }
+    const id = ++reqId.current;
+    setSearching(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await search({ data: { query: q, mediaType } });
+        if (id === reqId.current) setResults(r);
+      } catch {
+        if (id === reqId.current) setResults([]);
+      } finally {
+        if (id === reqId.current) {
+          setSearching(false);
+          setSearched(true);
+        }
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [query, mediaType, search]);
 
   function add(item: Item) {
     if (picked.length >= 10 || picked.some((p) => p.title === item.title && p.year === item.year)) return;
     setPicked([...picked, item]);
+    setQuery("");
+    setResults([]);
+    inputRef.current?.focus();
   }
 
   const label = (p: { title: string; year: number | null }) =>
@@ -172,59 +194,109 @@ function TryPage() {
           />
         </div>
 
-        <form onSubmit={runSearch} className="mt-4 flex gap-2">
+        {/* Your picks shelf */}
+        <div className="mt-6">
+          <div className="flex items-baseline justify-between">
+            <p className="text-sm font-medium">
+              Your favourites <span className="text-muted-foreground">· {picked.length}/10</span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {picked.length < 3 ? `${3 - picked.length} more to go` : "Nice — add more for sharper picks"}
+            </p>
+          </div>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-secondary">
+            <div
+              className="h-full rounded-full bg-primary transition-all duration-300"
+              style={{ width: `${Math.min(100, (picked.length / 3) * 100)}%` }}
+            />
+          </div>
+          <ul className="mt-4 grid grid-cols-5 gap-2 sm:grid-cols-10">
+            {Array.from({ length: Math.max(5, Math.min(10, picked.length + 1)) }).map((_, i) => {
+              const p = picked[i];
+              return (
+                <li key={p ? `${p.title}-${p.year}` : `slot-${i}`} className="relative">
+                  {p ? (
+                    <button
+                      aria-label={`Remove ${p.title}`}
+                      onClick={() => setPicked(picked.filter((x) => x !== p))}
+                      className="group relative block w-full"
+                    >
+                      <Poster title={p.title} year={p.year} posterUrl={p.posterUrl} />
+                      <span className="absolute right-1 top-1 grid size-5 place-items-center rounded-full bg-background/85 opacity-90 group-hover:opacity-100">
+                        <X className="size-3" />
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => inputRef.current?.focus()}
+                      className="grid aspect-[2/3] w-full place-items-center rounded-lg border border-dashed border-border text-muted-foreground hover:border-primary/60 hover:text-primary"
+                      aria-label="Add a favourite"
+                    >
+                      <Plus className="size-4" />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+
+        {/* Live search */}
+        <div className="relative mt-6">
+          <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder={mediaType === "series" ? "Search for a series" : "Search for a movie"}
+            placeholder={mediaType === "series" ? "Start typing a series you love…" : "Start typing a movie you love…"}
+            className="h-12 rounded-full pl-11 pr-11 text-base"
+            disabled={picked.length >= 10}
           />
-          <Button type="submit" variant="secondary" disabled={searching}>
-            {searching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
-            Search
-          </Button>
-        </form>
+          {searching ? (
+            <Loader2 className="absolute right-4 top-1/2 size-4 -translate-y-1/2 animate-spin text-muted-foreground" />
+          ) : query ? (
+            <button
+              aria-label="Clear search"
+              onClick={() => { setQuery(""); setResults([]); inputRef.current?.focus(); }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          ) : null}
+        </div>
+
+        {query.trim().length >= 2 && !searching && searched && results.length === 0 && (
+          <p className="mt-4 text-sm text-muted-foreground">
+            Nothing found for “{query.trim()}”. Try a shorter title or check the spelling.
+          </p>
+        )}
 
         {results.length > 0 && (
-          <ul className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {results.map((r) => (
-              <li key={`${r.title}-${r.year}`}>
-                <button
-                  onClick={() => add(r)}
-                  className="flex w-full items-center gap-2 rounded-xl border border-border/70 bg-card p-2 text-left text-sm hover:border-primary/60"
-                >
-                  <div className="w-10 shrink-0">
-                    <Poster title={r.title} year={r.year} posterUrl={r.posterUrl} />
-                  </div>
-                  <span className="min-w-0 flex-1 truncate">
-                    {r.title} <span className="text-muted-foreground">{r.year ?? ""}</span>
-                  </span>
-                  <Plus className="size-4 shrink-0 text-primary" />
-                </button>
-              </li>
-            ))}
+          <ul className="mt-4 grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-6">
+            {results.map((r) => {
+              const chosen = picked.some((p) => p.title === r.title && p.year === r.year);
+              return (
+                <li key={`${r.title}-${r.year}`}>
+                  <button
+                    onClick={() => (chosen ? setPicked(picked.filter((p) => !(p.title === r.title && p.year === r.year))) : add(r))}
+                    className="group block w-full text-left"
+                  >
+                    <div className={`relative overflow-hidden rounded-lg ring-2 transition ${chosen ? "ring-primary" : "ring-transparent group-hover:ring-primary/50"}`}>
+                      <Poster title={r.title} year={r.year} posterUrl={r.posterUrl} />
+                      <span className={`absolute right-1.5 top-1.5 grid size-7 place-items-center rounded-full ${chosen ? "bg-primary text-primary-foreground" : "bg-background/85 text-foreground"}`}>
+                        {chosen ? <Check className="size-4" /> : <Plus className="size-4" />}
+                      </span>
+                    </div>
+                    <p className="mt-1.5 truncate text-xs font-medium">{r.title}</p>
+                    <p className="text-xs text-muted-foreground">{r.year ?? ""}</p>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
 
-        {picked.length > 0 && (
-          <div className="mt-6 flex flex-wrap gap-2">
-            {picked.map((p) => (
-              <span
-                key={`${p.title}-${p.year}`}
-                className="inline-flex items-center gap-1 rounded-full bg-secondary px-3 py-1 text-sm"
-              >
-                {p.title}
-                <button
-                  aria-label={`Remove ${p.title}`}
-                  onClick={() => setPicked(picked.filter((x) => x !== p))}
-                >
-                  <X className="size-3.5" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        <Button className="mt-6" size="lg" disabled={picked.length < 3 || loading} onClick={go}>
+        <Button className="mt-6 w-full sm:w-auto" size="lg" disabled={picked.length < 3 || loading} onClick={go}>
           {loading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
           {picked.length < 3 ? `Pick ${3 - picked.length} more` : "Show my picks"}
         </Button>
