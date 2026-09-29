@@ -80,7 +80,12 @@ export const demoCandidates = createServerFn({ method: "POST" })
       }
 
       const gate = await enforceGeneration({ ipHash: await clientIpHash() });
-      if (!gate.ok) return { candidates: [], error: gate.message, errorCode: gate.code };
+      if (!gate.ok)
+        return {
+          candidates: [],
+          error: gate.message ?? "Something went wrong — try again",
+          errorCode: gate.code ?? "failed",
+        };
 
       const loved = data.picks.map((p) => ({
         id: "",
