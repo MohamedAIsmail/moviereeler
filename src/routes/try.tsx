@@ -167,6 +167,7 @@ function TryPage() {
   }
 
   async function go() {
+    retryRef.current = () => void go();
     const keys = newKeys(3);
     setLoading(true);
     setRefine(null);
@@ -179,6 +180,7 @@ function TryPage() {
   }
 
   async function runRefine(k: RefineKey) {
+    retryRef.current = () => void runRefine(k);
     const keys = newKeys(3);
     setRefine(k);
     setBusy(true);
@@ -191,6 +193,7 @@ function TryPage() {
   }
 
   async function more() {
+    retryRef.current = () => void more();
     const keys = newKeys(3);
     setBusy(true);
     setSlate((s) => [...s, ...keys.map((key) => ({ key, pick: null }))]);
