@@ -362,6 +362,38 @@ function TryPage() {
           {picked.length < 3 ? `Pick ${3 - picked.length} more` : "Show my picks"}
         </Button>
 
+        {genError && (
+          <div className="mt-8 rounded-2xl border border-border/70 bg-card p-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 size-5 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <p className="font-display text-lg font-semibold">
+                  {genError.limit ? "That’s today’s free picks" : "Something went wrong"}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{genError.message}</p>
+                <div className="mt-4">
+                  {genError.limit ? (
+                    <Button asChild>
+                      <Link to="/auth">Create free account</Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setGenError(null);
+                        retryRef.current?.();
+                      }}
+                    >
+                      Try again
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+
         {slate.length > 0 && (
           <section className="mt-10">
             <h2 className="font-display text-2xl font-semibold">You might enjoy</h2>
