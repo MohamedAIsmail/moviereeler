@@ -2,6 +2,8 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import type { MediaType } from "./movie-meta.server";
 import { fetchLibrary, type WatchedMovie } from "./movies.server";
+import { z } from "zod";
+import { REFINES, type RefineKey } from "./refine";
 
 type Client = SupabaseClient<Database>;
 
@@ -308,7 +310,10 @@ export async function refreshRecommendations(
   userId: string,
   mood: string | null,
   mediaType: MediaType = "movie",
+  opts: { count?: number; replaceNew?: boolean; refine?: RefineKey | null; note?: string | null } = {},
 ) {
+  const count = opts.count ?? 12;
+  const replaceNew = opts.replaceNew ?? true;
   const library = await fetchLibrary(supabase, userId, mediaType);
   if (library.length < 3) {
     throw new Error(
@@ -318,30 +323,43 @@ export async function refreshRecommendations(
     );
   }
 
-  const { data: previous } = await supabase
-    .from("recommendations")
-    .select("title, year, status")
-    .eq("user_id", userId)
-    .eq("media_type", mediaType)
-    .limit(200);
+  const [{ data: previous }, { data: feedback }] = await Promise.all([
+    supabase
+      .from("recommendations")
+      .select("title, year, status")
+      .eq("user_id", userId)
+      .eq("media_type", mediaType)
+      .limit(300),
+    supabase
+      .from("pick_feedback")
+      .select("title, year")
+      .eq("user_id", userId)
+      .eq("media_type", mediaType)
+      .limit(500),
+  ]);
 
+  const fmt = (r: { title: string; year: number | null }) => `${r.title}${r.year ? ` (${r.year})` : ""}`;
   const exclude = [
-    ...library.map((m) => `${m.title}${m.year ? ` (${m.year})` : ""}`),
-    ...(previous ?? [])
-      .filter((r) => r.status !== "saved")
-      .map((r) => `${r.title}${r.year ? ` (${r.year})` : ""}`),
-  ].slice(0, 700);
+    ...(feedback ?? []).map(fmt),
+    ...library.map(fmt),
+    ...(previous ?? []).map(fmt),
+  ].slice(0, 900);
 
   const profile = buildTasteProfile(library);
-  const resolved = await generateResolvedPicks(profile, exclude, mood, mediaType, 12);
+  const resolved = await generateResolvedPicks(profile, exclude, mood, mediaType, count, {
+    refine: opts.refine ?? null,
+    note: opts.note ?? null,
+  });
   if (resolved.length === 0) throw new Error("We couldn’t find any recommendations. Please try again.");
 
-  await supabase
-    .from("recommendations")
-    .delete()
-    .eq("user_id", userId)
-    .eq("status", "new")
-    .eq("media_type", mediaType);
+  if (replaceNew) {
+    await supabase
+      .from("recommendations")
+      .delete()
+      .eq("user_id", userId)
+      .eq("status", "new")
+      .eq("media_type", mediaType);
+  }
 
   const rows = resolved.map((item) => {
     const meta = item.meta;
@@ -349,7 +367,8 @@ export async function refreshRecommendations(
       user_id: userId,
       title: meta.title || item.title,
       year: meta.year ?? item.year ?? null,
-      reason: item.reason,
+      reason: item.because,
+      hook: item.hook,
       match_score: Math.min(99, Math.max(1, Math.round(item.matchScore))),
       poster_url: meta.posterUrl,
       overview: meta.overview,
