@@ -14,7 +14,7 @@ export const demoSearch = createServerFn({ method: "POST" })
   )
   .handler(async ({ data }) => {
     const { searchMovies } = await import("./movie-meta.server");
-    const results = await searchMovies(data.query, 8, data.mediaType);
+    const results = await searchMovies(data.query, 12, data.mediaType);
     return results.map((r) => ({ title: r.title, year: r.year, posterUrl: r.posterUrl }));
   });
 
