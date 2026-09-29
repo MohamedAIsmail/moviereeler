@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Clapperboard, Loader2, Plus, Search, Sparkles, X } from "lucide-react";
+import { Ban, Clapperboard, Eye, Loader2, Play, Plus, Search, Sparkles, X } from "lucide-react";
+import { RefineBar } from "@/components/RefineBar";
+import { trailerUrl, type RefineKey } from "@/lib/refine";
 import { toast } from "sonner";
 import { demoRecommend, demoSearch, type DemoPick } from "@/lib/demo.functions";
 import { Button } from "@/components/ui/button";
@@ -41,6 +43,10 @@ function TryPage() {
   const [searching, setSearching] = useState(false);
   const [loading, setLoading] = useState(false);
   const [slate, setSlate] = useState<DemoPick[]>([]);
+  const [excluded, setExcluded] = useState<string[]>([]); // shown, seen or rejected this session
+  const [refine, setRefine] = useState<RefineKey | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const noun = mediaType === "series" ? "series" : "movies";
 
@@ -60,17 +66,75 @@ function TryPage() {
     setPicked([...picked, item]);
   }
 
+  const label = (p: { title: string; year: number | null }) =>
+    `${p.title}${p.year ? ` (${p.year})` : ""}`;
+
+  async function fetchPicks(opts: { count: number; refine: RefineKey | null; exclude: string[] }) {
+    const res = await recommend({
+      data: {
+        mediaType,
+        picks: picked.map((p) => ({ title: p.title, year: p.year })),
+        exclude: opts.exclude.slice(-150),
+        refine: opts.refine,
+        note: note.trim() || null,
+        count: opts.count,
+      },
+    });
+    if (res.error) toast.error(res.error);
+    return res.picks;
+  }
+
   async function go() {
     setLoading(true);
     setSlate([]);
+    setRefine(null);
     try {
-      const res = await recommend({
-        data: { mediaType, picks: picked.map((p) => ({ title: p.title, year: p.year })) },
-      });
-      if (res.error) toast.error(res.error);
-      setSlate(res.picks);
+      const picks = await fetchPicks({ count: 3, refine: null, exclude: excluded });
+      setSlate(picks);
+      setExcluded((x) => [...x, ...picks.map(label)]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function runRefine(k: RefineKey) {
+    setRefine(k);
+    setBusy(true);
+    try {
+      const picks = await fetchPicks({ count: 3, refine: k, exclude: excluded });
+      if (picks.length) {
+        setSlate(picks);
+        setExcluded((x) => [...x, ...picks.map(label)]);
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function more() {
+    setBusy(true);
+    try {
+      const picks = await fetchPicks({ count: 3, refine, exclude: excluded });
+      setSlate((s) => [...s, ...picks]);
+      setExcluded((x) => [...x, ...picks.map(label)]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function dismiss(item: DemoPick) {
+    const index = slate.indexOf(item);
+    setSlate((s) => s.filter((x) => x !== item));
+    const nextExcluded = [...excluded, label(item)];
+    setExcluded(nextExcluded);
+    const [replacement] = await fetchPicks({ count: 1, refine, exclude: nextExcluded });
+    if (replacement) {
+      setExcluded((x) => [...x, label(replacement)]);
+      setSlate((s) => {
+        const copy = [...s];
+        copy.splice(Math.min(index, copy.length), 0, replacement);
+        return copy;
+      });
     }
   }
 
@@ -102,6 +166,8 @@ function TryPage() {
               setResults([]);
               setPicked([]);
               setSlate([]);
+              setExcluded([]);
+              setRefine(null);
             }}
           />
         </div>
@@ -169,7 +235,7 @@ function TryPage() {
             <ul className="mt-4 space-y-4">
               {slate.filter((item) => item.posterUrl || item.overview).map((item) => (
                 <li
-                  key={item.title}
+                  key={`${item.title}-${item.year}`}
                   className="flex gap-4 rounded-2xl border border-border/70 bg-card p-4 sm:gap-6 sm:p-5"
                 >
                   <div className="w-24 shrink-0 sm:w-32">
@@ -188,13 +254,40 @@ function TryPage() {
                         {item.genres.slice(0, 3).join(" · ")}
                       </p>
                     )}
-                    {item.overview && (
-                      <p className="mt-3 text-sm leading-relaxed text-foreground/90">{item.overview}</p>
-                    )}
+                    <p className="mt-3 text-sm font-medium leading-relaxed text-primary">
+                      {item.because}
+                    </p>
+                    <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+                      {item.hook || item.overview}
+                    </p>
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <Button variant="secondary" size="sm" onClick={() => void dismiss(item)}>
+                        <Eye className="size-4" />
+                        Seen it
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={() => void dismiss(item)}>
+                        <Ban className="size-4" />
+                        Not for me
+                      </Button>
+                      <Button asChild variant="ghost" size="sm">
+                        <a href={trailerUrl(item.title, item.year)} target="_blank" rel="noopener noreferrer">
+                          <Play className="size-4" />
+                          Trailer
+                        </a>
+                      </Button>
+                    </div>
                   </div>
                 </li>
               ))}
             </ul>
+            <RefineBar
+              busy={busy}
+              active={refine}
+              note={note}
+              onNote={setNote}
+              onRefine={(k) => void runRefine(k)}
+              onMore={() => void more()}
+            />
             <div className="mt-8 rounded-2xl border border-border/70 bg-card p-6 text-center">
               <p className="font-display text-lg font-semibold">Want better picks?</p>
               <p className="mt-1 text-sm text-muted-foreground">

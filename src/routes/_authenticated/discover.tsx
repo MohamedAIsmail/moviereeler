@@ -2,7 +2,9 @@ import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
-import { Bookmark, Loader2, Sparkles, X, ThumbsUp, ThumbsDown } from "lucide-react";
+import { Ban, Bookmark, Eye, Loader2, Play, Sparkles } from "lucide-react";
+import { RefineBar } from "@/components/RefineBar";
+import { trailerUrl, type RefineKey } from "@/lib/refine";
 import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { MediaToggle, type MediaType, copyFor } from "@/components/MediaToggle";
@@ -14,7 +16,7 @@ import {
   generateRecommendations,
   listRecommendations,
   setRecommendationStatus,
-  setRecommendationFeedback,
+  markPick,
 } from "@/lib/recommend.functions";
 
 export const Route = createFileRoute("/_authenticated/discover")({
@@ -43,7 +45,10 @@ function DiscoverPage() {
   const fetchLibrary = useServerFn(listLibrary);
   const generate = useServerFn(generateRecommendations);
   const setStatus = useServerFn(setRecommendationStatus);
-  const sendFeedback = useServerFn(setRecommendationFeedback);
+  const sendMark = useServerFn(markPick);
+  const [refine, setRefine] = useState<RefineKey | null>(null);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const [mediaType, setMediaType] = useState<MediaType>("movie");
   const copy = copyFor(mediaType);
@@ -60,7 +65,10 @@ function DiscoverPage() {
   const libraryCount = library.data?.length ?? 0;
 
   const generateMutation = useMutation({
-    mutationFn: () => generate({ data: { mood: mood.trim() || null, mediaType } }),
+    mutationFn: () => {
+      setRefine(null);
+      return generate({ data: { mood: mood.trim() || null, mediaType, note: note.trim() || null } });
+    },
     onSuccess: (result) => {
       toast.success(`${result.count} new recommendations are ready`);
       void queryClient.invalidateQueries({ queryKey: ["recommendations", mediaType] });
@@ -70,9 +78,35 @@ function DiscoverPage() {
 
   const items = recs.data ?? [];
 
-  async function rate(id: string, value: 1 | -1 | null) {
-    await sendFeedback({ data: { id, feedback: value } });
-    void queryClient.invalidateQueries({ queryKey: ["recommendations"] });
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: ["recommendations", mediaType] });
+
+  async function runGenerate(opts: { count: number; replaceNew: boolean; refine: RefineKey | null }) {
+    setBusy(true);
+    try {
+      await generate({
+        data: { mood: mood.trim() || null, mediaType, note: note.trim() || null, ...opts },
+      });
+      await invalidate();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function mark(id: string, kind: "seen" | "rejected") {
+    queryClient.setQueryData(["recommendations", mediaType], (old: typeof items | undefined) =>
+      old?.filter((r) => r.id !== id),
+    );
+    try {
+      await sendMark({ data: { id, kind } });
+      await generate({
+        data: { mood: mood.trim() || null, mediaType, note: note.trim() || null, count: 1, replaceNew: false, refine },
+      });
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+    void invalidate();
   }
 
   async function updateStatus(id: string, status: "saved" | "dismissed") {
@@ -171,13 +205,16 @@ function DiscoverPage() {
                   </p>
                 )}
 
-                {item.overview && (
-                  <p className="mt-3 text-sm leading-relaxed text-foreground/90">
-                    {item.overview}
+                {item.reason && (
+                  <p className="mt-3 text-sm font-medium leading-relaxed text-primary">{item.reason}</p>
+                )}
+                {(item.hook || item.overview) && (
+                  <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+                    {item.hook || item.overview}
                   </p>
                 )}
 
-                <div className="mt-4 flex gap-2">
+                <div className="mt-4 flex flex-wrap gap-2">
                   <Button
                     variant="secondary"
                     size="sm"
@@ -187,36 +224,38 @@ function DiscoverPage() {
                     <Bookmark className="size-4" />
                     Save
                   </Button>
-                  <Button
-                    variant={item.feedback === 1 ? "secondary" : "ghost"}
-                    size="sm"
-                    aria-label="Good pick"
-                    onClick={() => void rate(item.id, item.feedback === 1 ? null : 1)}
-                  >
-                    <ThumbsUp className={item.feedback === 1 ? "size-4 text-primary" : "size-4"} />
+                  <Button variant="ghost" size="sm" onClick={() => void mark(item.id, "seen")}>
+                    <Eye className="size-4" />
+                    Seen it
                   </Button>
-                  <Button
-                    variant={item.feedback === -1 ? "secondary" : "ghost"}
-                    size="sm"
-                    aria-label="Not for me"
-                    onClick={() => void rate(item.id, item.feedback === -1 ? null : -1)}
-                  >
-                    <ThumbsDown className={item.feedback === -1 ? "size-4 text-primary" : "size-4"} />
+                  <Button variant="ghost" size="sm" onClick={() => void mark(item.id, "rejected")}>
+                    <Ban className="size-4" />
+                    Not for me
                   </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-muted-foreground"
-                    onClick={() => void updateStatus(item.id, "dismissed")}
-                  >
-                    <X className="size-4" />
-                    Skip
+                  <Button asChild variant="ghost" size="sm">
+                    <a href={trailerUrl(item.title, item.year)} target="_blank" rel="noopener noreferrer">
+                      <Play className="size-4" />
+                      Trailer
+                    </a>
                   </Button>
                 </div>
               </div>
             </li>
           ))}
         </ul>
+      )}
+      {items.length > 0 && libraryCount >= 3 && (
+        <RefineBar
+          busy={busy || generateMutation.isPending}
+          active={refine}
+          note={note}
+          onNote={setNote}
+          onRefine={(k) => {
+            setRefine(k);
+            void runGenerate({ count: 3, replaceNew: true, refine: k });
+          }}
+          onMore={() => void runGenerate({ count: 3, replaceNew: false, refine })}
+        />
       )}
     </AppShell>
   );

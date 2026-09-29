@@ -25,6 +25,8 @@ export interface DemoPick {
   posterUrl: string | null;
   overview: string | null;
   genres: string[];
+  because: string;
+  hook: string;
 }
 
 export const demoRecommend = createServerFn({ method: "POST" })
@@ -33,6 +35,10 @@ export const demoRecommend = createServerFn({ method: "POST" })
       .object({
         picks: z.array(Pick).min(3).max(10),
         mediaType: z.enum(["movie", "series"]),
+        exclude: z.array(z.string().max(320)).max(150).default([]),
+        refine: z.enum(["obscure", "recent", "lighter", "darker", "director", "shorter"]).nullable().optional(),
+        note: z.string().max(200).nullable().optional(),
+        count: z.number().int().min(1).max(3).default(3),
       })
       .parse(input),
   )
@@ -40,19 +46,26 @@ export const demoRecommend = createServerFn({ method: "POST" })
     const { sha, cacheGet, cacheSet, clientIpHash, enforceLimit } = await import(
       "./usage.server"
     );
+    const note = data.note?.trim() || null;
+    const cacheable = data.exclude.length === 0 && !data.refine && !note && data.count === 3;
     const key = await sha(
-      data.mediaType +
+      "v2|" +
+        data.mediaType +
         "|" +
         data.picks
           .map((p) => `${p.title.toLowerCase()}|${p.year ?? ""}`)
           .sort()
           .join(";"),
     );
-    const cached = await cacheGet<DemoPick[]>(key);
-    if (cached) return { picks: cached };
+    if (cacheable) {
+      const cached = await cacheGet<DemoPick[]>(key);
+      if (cached) return { picks: cached };
+    }
 
     try {
-      await enforceLimit({ ipHash: await clientIpHash() }, "demo", 5);
+      const ipHash = await clientIpHash();
+      if (data.count === 1) await enforceLimit({ ipHash }, "demo-refill", 30);
+      else await enforceLimit({ ipHash }, "demo", 10);
     } catch (e) {
       return { picks: [], error: (e as Error).message };
     }
@@ -73,16 +86,18 @@ export const demoRecommend = createServerFn({ method: "POST" })
       decades: [],
       averageRating: null,
     };
+    const selected = data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`);
     try {
       const { generateResolvedPicks } = await import("./recommend.server");
       const resolved = await generateResolvedPicks(
         profile,
-        data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`),
+        [...selected, ...data.exclude],
         null,
         data.mediaType,
-        3,
+        data.count,
+        { refine: data.refine ?? null, note, anchors: selected },
       );
-      if (resolved.length < 3) {
+      if (resolved.length < data.count) {
         return { picks: [], error: "We couldn’t find picks right now. Please try again." };
       }
       const picks: DemoPick[] = resolved.map((s) => ({
@@ -92,8 +107,10 @@ export const demoRecommend = createServerFn({ method: "POST" })
         posterUrl: s.meta.posterUrl,
         overview: s.meta.overview,
         genres: s.meta.genres,
+        because: s.because,
+        hook: s.hook,
       }));
-      await cacheSet(key, picks);
+      if (cacheable) await cacheSet(key, picks);
       return { picks };
     } catch (e) {
       console.error(e);
