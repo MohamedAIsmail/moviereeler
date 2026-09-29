@@ -16,6 +16,7 @@ import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TryRouteImport } from './routes/try'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
+import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedDiscoverRouteImport } from './routes/_authenticated/discover'
 import { Route as AuthenticatedLibraryRouteImport } from './routes/_authenticated/library'
 
@@ -53,6 +54,11 @@ const AuthenticatedAccountRoute = AuthenticatedAccountRouteImport.update({
   path: '/account',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const AuthenticatedAdminRoute = AuthenticatedAdminRouteImport.update({
+  id: '/admin',
+  path: '/admin',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedDiscoverRoute = AuthenticatedDiscoverRouteImport.update({
   id: '/discover',
   path: '/discover',
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/terms': typeof TermsRoute
   '/try': typeof TryRoute
   '/account': typeof AuthenticatedAccountRoute
+  '/admin': typeof AuthenticatedAdminRoute
   '/discover': typeof AuthenticatedDiscoverRoute
   '/library': typeof AuthenticatedLibraryRoute
 }
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/terms': typeof TermsRoute
   '/try': typeof TryRoute
   '/account': typeof AuthenticatedAccountRoute
+  '/admin': typeof AuthenticatedAdminRoute
   '/discover': typeof AuthenticatedDiscoverRoute
   '/library': typeof AuthenticatedLibraryRoute
 }
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/terms': typeof TermsRoute
   '/try': typeof TryRoute
   '/_authenticated/account': typeof AuthenticatedAccountRoute
+  '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/discover': typeof AuthenticatedDiscoverRoute
   '/_authenticated/library': typeof AuthenticatedLibraryRoute
 }
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/try'
     | '/account'
+    | '/admin'
     | '/discover'
     | '/library'
   fileRoutesByTo: FileRoutesByTo
@@ -115,6 +125,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/try'
     | '/account'
+    | '/admin'
     | '/discover'
     | '/library'
   id:
@@ -126,6 +137,7 @@ export interface FileRouteTypes {
     | '/terms'
     | '/try'
     | '/_authenticated/account'
+    | '/_authenticated/admin'
     | '/_authenticated/discover'
     | '/_authenticated/library'
   fileRoutesById: FileRoutesById
@@ -190,6 +202,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAccountRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/admin': {
+      id: '/_authenticated/admin'
+      path: '/admin'
+      fullPath: '/admin'
+      preLoaderRoute: typeof AuthenticatedAdminRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/discover': {
       id: '/_authenticated/discover'
       path: '/discover'
@@ -209,12 +228,14 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedAccountRoute: typeof AuthenticatedAccountRoute
+  AuthenticatedAdminRoute: typeof AuthenticatedAdminRoute
   AuthenticatedDiscoverRoute: typeof AuthenticatedDiscoverRoute
   AuthenticatedLibraryRoute: typeof AuthenticatedLibraryRoute
 }
 
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedAccountRoute: AuthenticatedAccountRoute,
+  AuthenticatedAdminRoute: AuthenticatedAdminRoute,
   AuthenticatedDiscoverRoute: AuthenticatedDiscoverRoute,
   AuthenticatedLibraryRoute: AuthenticatedLibraryRoute,
 }
