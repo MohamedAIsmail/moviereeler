@@ -82,43 +82,48 @@ export const demoCandidates = createServerFn({ method: "POST" })
       const gate = await enforceGeneration({ ipHash: await clientIpHash() });
       if (!gate.ok) return { candidates: [], error: gate.message, errorCode: gate.code };
 
-    const loved = data.picks.map((p) => ({
-      id: "",
-      title: p.title,
-      year: p.year ?? null,
-      rating: 9,
-      watched_on: null,
-    }));
-    const profile = {
-      total: loved.length,
-      loved: loved as never,
-      liked: [],
-      disliked: [],
-      recent: [],
-      decades: [],
-      averageRating: null,
-    };
-    const selected = data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`);
-    try {
-      const { generateCandidates } = await import("./recommend.server");
-      const candidates = await generateCandidates(
-        profile,
-        [...selected, ...data.exclude],
-        null,
-        data.mediaType,
-        data.count,
-        { refine: data.refine ?? null, note, anchors: selected },
-      );
-      if (!candidates.length) {
-        return { candidates: [], error: "We couldn’t find picks right now. Please try again." };
+      const loved = data.picks.map((p) => ({
+        id: "",
+        title: p.title,
+        year: p.year ?? null,
+        rating: 9,
+        watched_on: null,
+      }));
+      const profile = {
+        total: loved.length,
+        loved: loved as never,
+        liked: [],
+        disliked: [],
+        recent: [],
+        decades: [],
+        averageRating: null,
+      };
+      const selected = data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`);
+      try {
+        const { generateCandidates } = await import("./recommend.server");
+        const candidates = await generateCandidates(
+          profile,
+          [...selected, ...data.exclude],
+          null,
+          data.mediaType,
+          data.count,
+          { refine: data.refine ?? null, note, anchors: selected },
+        );
+        if (!candidates.length) {
+          return {
+            candidates: [],
+            error: "Something went wrong — try again",
+            errorCode: "failed",
+          };
+        }
+        if (cacheable) await cacheSet(key, candidates);
+        return { candidates };
+      } catch (e) {
+        console.error(e);
+        return { candidates: [], error: "Something went wrong — try again", errorCode: "failed" };
       }
-      if (cacheable) await cacheSet(key, candidates);
-      return { candidates };
-    } catch (e) {
-      console.error(e);
-      return { candidates: [], error: "We couldn’t find picks right now. Please try again." };
-    }
-  });
+    },
+  );
 
 /** Phase 2: resolve one candidate against the catalog. Null = incomplete, skip it. */
 export const demoResolve = createServerFn({ method: "POST" })
