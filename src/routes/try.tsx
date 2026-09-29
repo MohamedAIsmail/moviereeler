@@ -5,7 +5,7 @@ import { Ban, Check, Clapperboard, Eye, Loader2, Play, Plus, Search, Sparkles, X
 import { RefineBar } from "@/components/RefineBar";
 import { trailerUrl, type RefineKey } from "@/lib/refine";
 import { toast } from "sonner";
-import { demoRecommend, demoSearch, type DemoPick } from "@/lib/demo.functions";
+import { demoCandidates, demoResolve, demoSearch, type DemoPick } from "@/lib/demo.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Poster } from "@/components/Poster";
@@ -33,19 +33,24 @@ export const Route = createFileRoute("/try")({
 
 type Item = { title: string; year: number | null; posterUrl: string | null };
 
+type Slot = { key: string; pick: DemoPick | null };
+let slotSeq = 0;
+const newKeys = (n: number) => Array.from({ length: n }, () => `slot-${++slotSeq}`);
+
 function TryPage() {
   const search = useServerFn(demoSearch);
-  const recommend = useServerFn(demoRecommend);
+  const getCandidates = useServerFn(demoCandidates);
+  const resolveOne = useServerFn(demoResolve);
   const [mediaType, setMediaType] = useState<"movie" | "series">("movie");
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Item[]>([]);
   const [picked, setPicked] = useState<Item[]>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
-  const reqId = useRef(0);
+  const [searchSlow, setSearchSlow] = useState<null | "retrying" | "failed">(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [loading, setLoading] = useState(false);
-  const [slate, setSlate] = useState<DemoPick[]>([]);
+  const [slate, setSlate] = useState<Slot[]>([]);
   const [excluded, setExcluded] = useState<string[]>([]); // shown, seen or rejected this session
   const [refine, setRefine] = useState<RefineKey | null>(null);
   const [note, setNote] = useState("");
@@ -53,31 +58,46 @@ function TryPage() {
 
   const noun = mediaType === "series" ? "series" : "movies";
 
-  // Search as you type; only the latest request is allowed to update results.
+  // Debounced search (300ms); outdated requests are aborted.
   useEffect(() => {
     const q = query.trim();
+    setSearchSlow(null);
     if (q.length < 2) {
       setResults([]);
       setSearched(false);
       setSearching(false);
       return;
     }
-    const id = ++reqId.current;
+    const ctrl = new AbortController();
     setSearching(true);
     const t = setTimeout(async () => {
       try {
-        const r = await search({ data: { query: q, mediaType } });
-        if (id === reqId.current) setResults(r);
-      } catch {
-        if (id === reqId.current) setResults([]);
-      } finally {
-        if (id === reqId.current) {
-          setSearching(false);
-          setSearched(true);
+        for (let attempt = 0; attempt < 2; attempt++) {
+          let r: Awaited<ReturnType<typeof search>> | null = null;
+          try {
+            r = await search({ data: { query: q, mediaType }, signal: ctrl.signal });
+          } catch {
+            if (ctrl.signal.aborted) return;
+          }
+          if (ctrl.signal.aborted) return;
+          if (r && !r.failed) {
+            setResults(r.results);
+            setSearchSlow(null);
+            setSearched(true);
+            return;
+          }
+          setSearchSlow(attempt === 0 ? "retrying" : "failed");
         }
+        setResults([]);
+        setSearched(true);
+      } finally {
+        if (!ctrl.signal.aborted) setSearching(false);
       }
     }, 300);
-    return () => clearTimeout(t);
+    return () => {
+      clearTimeout(t);
+      ctrl.abort();
+    };
   }, [query, mediaType, search]);
 
   function add(item: Item) {
@@ -91,73 +111,90 @@ function TryPage() {
   const label = (p: { title: string; year: number | null }) =>
     `${p.title}${p.year ? ` (${p.year})` : ""}`;
 
-  async function fetchPicks(opts: { count: number; refine: RefineKey | null; exclude: string[] }) {
-    const res = await recommend({
-      data: {
-        mediaType,
-        picks: picked.map((p) => ({ title: p.title, year: p.year })),
-        exclude: opts.exclude.slice(-150),
-        refine: opts.refine,
-        note: note.trim() || null,
-        count: opts.count,
-      },
-    });
-    if (res.error) toast.error(res.error);
-    return res.picks;
+  /** Fill the given (skeleton) slots: one fast AI call, then resolve each pick in parallel. */
+  async function fill(keys: string[], opts: { refine: RefineKey | null; exclude: string[] }) {
+    const dropSlots = () => setSlate((s) => s.filter((x) => !keys.includes(x.key) || x.pick));
+    let res: Awaited<ReturnType<typeof getCandidates>>;
+    try {
+      res = await getCandidates({
+        data: {
+          mediaType,
+          picks: picked.map((p) => ({ title: p.title, year: p.year })),
+          exclude: opts.exclude.slice(-150),
+          refine: opts.refine,
+          note: note.trim() || null,
+          count: keys.length,
+        },
+      });
+    } catch {
+      res = { candidates: [], error: "We couldn’t find picks right now. Please try again." };
+    }
+    if (res.error || !res.candidates.length) {
+      toast.error(res.error ?? "We couldn’t find picks right now. Please try again.");
+      dropSlots();
+      return;
+    }
+    const queue = [...res.candidates];
+    const shown = queue.map(label);
+    setExcluded((x) => [...x, ...shown]);
+    const exclude = [...opts.exclude, ...shown].slice(-160);
+    await Promise.all(
+      keys.map(async (key) => {
+        while (queue.length) {
+          const candidate = queue.shift()!;
+          const pick = await resolveOne({ data: { mediaType, exclude, candidate } }).catch(() => null);
+          if (pick) {
+            setSlate((s) => s.map((x) => (x.key === key ? { key, pick } : x)));
+            return;
+          }
+        }
+        setSlate((s) => s.filter((x) => x.key !== key));
+      }),
+    );
   }
 
   async function go() {
+    const keys = newKeys(3);
     setLoading(true);
-    setSlate([]);
     setRefine(null);
+    setSlate(keys.map((key) => ({ key, pick: null })));
     try {
-      const picks = await fetchPicks({ count: 3, refine: null, exclude: excluded });
-      setSlate(picks);
-      setExcluded((x) => [...x, ...picks.map(label)]);
+      await fill(keys, { refine: null, exclude: excluded });
     } finally {
       setLoading(false);
     }
   }
 
   async function runRefine(k: RefineKey) {
+    const keys = newKeys(3);
     setRefine(k);
     setBusy(true);
+    setSlate(keys.map((key) => ({ key, pick: null })));
     try {
-      const picks = await fetchPicks({ count: 3, refine: k, exclude: excluded });
-      if (picks.length) {
-        setSlate(picks);
-        setExcluded((x) => [...x, ...picks.map(label)]);
-      }
+      await fill(keys, { refine: k, exclude: excluded });
     } finally {
       setBusy(false);
     }
   }
 
   async function more() {
+    const keys = newKeys(3);
     setBusy(true);
+    setSlate((s) => [...s, ...keys.map((key) => ({ key, pick: null }))]);
     try {
-      const picks = await fetchPicks({ count: 3, refine, exclude: excluded });
-      setSlate((s) => [...s, ...picks]);
-      setExcluded((x) => [...x, ...picks.map(label)]);
+      await fill(keys, { refine, exclude: excluded });
     } finally {
       setBusy(false);
     }
   }
 
-  async function dismiss(item: DemoPick) {
-    const index = slate.indexOf(item);
-    setSlate((s) => s.filter((x) => x !== item));
-    const nextExcluded = [...excluded, label(item)];
+  async function dismiss(slot: Slot) {
+    if (!slot.pick) return;
+    const [key] = newKeys(1);
+    setSlate((s) => s.map((x) => (x.key === slot.key ? { key: key!, pick: null } : x)));
+    const nextExcluded = [...excluded, label(slot.pick)];
     setExcluded(nextExcluded);
-    const [replacement] = await fetchPicks({ count: 1, refine, exclude: nextExcluded });
-    if (replacement) {
-      setExcluded((x) => [...x, label(replacement)]);
-      setSlate((s) => {
-        const copy = [...s];
-        copy.splice(Math.min(index, copy.length), 0, replacement);
-        return copy;
-      });
-    }
+    await fill([key!], { refine, exclude: nextExcluded });
   }
 
   return (
@@ -265,7 +302,15 @@ function TryPage() {
           ) : null}
         </div>
 
-        {query.trim().length >= 2 && !searching && searched && results.length === 0 && (
+        {query.trim().length >= 2 && searchSlow && (
+          <p className="mt-4 text-sm text-muted-foreground">
+            {searchSlow === "retrying"
+              ? "Search is slow, retrying…"
+              : "Search is slow right now. Give it a moment and try again."}
+          </p>
+        )}
+
+        {query.trim().length >= 2 && !searching && searched && !searchSlow && results.length === 0 && (
           <p className="mt-4 text-sm text-muted-foreground">
             Nothing found for “{query.trim()}”. Try a shorter title or check the spelling.
           </p>
@@ -305,9 +350,28 @@ function TryPage() {
           <section className="mt-10">
             <h2 className="font-display text-2xl font-semibold">You might enjoy</h2>
             <ul className="mt-4 space-y-4">
-              {slate.filter((item) => item.posterUrl || item.overview).map((item) => (
+              {slate.map((slot) => {
+                const item = slot.pick;
+                if (!item)
+                  return (
+                    <li
+                      key={slot.key}
+                      aria-busy="true"
+                      className="flex animate-pulse gap-4 rounded-2xl border border-border/70 bg-card p-4 sm:gap-6 sm:p-5"
+                    >
+                      <div className="aspect-[2/3] w-24 shrink-0 rounded-lg bg-secondary sm:w-32" />
+                      <div className="flex-1 space-y-3 pt-1">
+                        <div className="h-5 w-1/2 rounded bg-secondary" />
+                        <div className="h-3 w-1/4 rounded bg-secondary" />
+                        <div className="h-4 w-full rounded bg-secondary" />
+                        <div className="h-4 w-5/6 rounded bg-secondary" />
+                      </div>
+                    </li>
+                  );
+                if (!item.posterUrl && !item.overview) return null;
+                return (
                 <li
-                  key={`${item.title}-${item.year}`}
+                  key={slot.key}
                   className="flex gap-4 rounded-2xl border border-border/70 bg-card p-4 sm:gap-6 sm:p-5"
                 >
                   <div className="w-24 shrink-0 sm:w-32">
@@ -333,11 +397,11 @@ function TryPage() {
                       {item.hook || item.overview}
                     </p>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => void dismiss(item)}>
+                      <Button variant="secondary" size="sm" onClick={() => void dismiss(slot)}>
                         <Eye className="size-4" />
                         Seen it
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => void dismiss(item)}>
+                      <Button variant="ghost" size="sm" onClick={() => void dismiss(slot)}>
                         <Ban className="size-4" />
                         Not for me
                       </Button>
@@ -350,7 +414,8 @@ function TryPage() {
                     </div>
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
             <RefineBar
               busy={busy}
