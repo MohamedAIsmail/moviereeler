@@ -71,36 +71,84 @@ export async function searchMovies(
   limit = 12,
   type: MediaType = "movie",
 ): Promise<MovieMeta[]> {
+  return (await searchMoviesDetailed(query, limit, type)).results;
+}
+
+async function cinemetaSearch(q: string, type: MediaType): Promise<MovieMeta[] | null> {
+  try {
+    const res = await fetch(
+      `${CINEMETA}/catalog/${type}/top/search=${encodeURIComponent(q)}.json`,
+      { signal: AbortSignal.timeout(5000) },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as { metas?: CinemetaMeta[] };
+    return (body.metas ?? []).map(mapMeta);
+  } catch {
+    return null;
+  }
+}
+
+/** Fallback source: IMDb's public title suggestions (key-less). */
+async function imdbSuggestSearch(q: string, type: MediaType): Promise<MovieMeta[] | null> {
+  try {
+    const res = await fetch(
+      `https://v3.sg.media-imdb.com/suggestion/x/${encodeURIComponent(q.toLowerCase())}.json`,
+      { signal: AbortSignal.timeout(5000) },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      d?: { id?: string; l?: string; y?: number; qid?: string; i?: { imageUrl?: string } }[];
+    };
+    const wanted = type === "series" ? ["tvSeries", "tvMiniSeries"] : ["movie", "tvMovie"];
+    return (body.d ?? [])
+      .filter((d) => d.id?.startsWith("tt") && d.qid && wanted.includes(d.qid))
+      .map((d) => ({
+        imdbId: d.id ?? null,
+        title: d.l ?? "",
+        year: d.y ?? null,
+        posterUrl: d.i?.imageUrl ? d.i.imageUrl.replace("._V1_.", "._V1_SX300.") : null,
+        overview: null,
+        genres: [],
+      }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Catalog search with a 5s timeout: Cinemeta, one retry, then IMDb suggestions.
+ * `failed` is true only when every source errored/timed out (not a real "no match").
+ */
+export async function searchMoviesDetailed(
+  query: string,
+  limit = 12,
+  type: MediaType = "movie",
+): Promise<{ results: MovieMeta[]; failed: boolean }> {
   const trimmed = query.trim();
-  if (!trimmed) return [];
+  if (!trimmed) return { results: [], failed: false };
   const key = `${type}|${trimmed.toLowerCase()}`;
   const hit = searchCache.get(key);
-  if (hit && hit.length) return hit.slice(0, limit);
-  // The catalog is sometimes slow or empty on the first (cold) request —
-  // retry up to twice before giving up so users don't have to search again.
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch(
-        `${CINEMETA}/catalog/${type}/top/search=${encodeURIComponent(trimmed)}.json`,
-        { signal: AbortSignal.timeout(attempt === 0 ? 5000 : 8000) },
-      );
-      if (res.ok) {
-        const body = (await res.json()) as { metas?: CinemetaMeta[] };
-        const list = (body.metas ?? []).map(mapMeta);
-        if (list.length) {
-          if (searchCache.size > 500) searchCache.clear();
-          searchCache.set(key, list);
-          return list.slice(0, limit);
-        }
-      }
-    } catch {
-      // retry
+  if (hit && hit.length) return { results: hit.slice(0, limit), failed: false };
+
+  let anyAnswered = false;
+  const sources = [
+    () => cinemetaSearch(trimmed, type),
+    () => cinemetaSearch(trimmed, type),
+    () => imdbSuggestSearch(trimmed, type),
+  ];
+  for (const run of sources) {
+    const list = await run();
+    if (list) anyAnswered = true;
+    if (list && list.length) {
+      if (searchCache.size > 500) searchCache.clear();
+      searchCache.set(key, list);
+      return { results: list.slice(0, limit), failed: false };
     }
-    await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
   }
-  return [];
+  return { results: [], failed: !anyAnswered };
 }
 const searchCache = new Map<string, MovieMeta[]>();
+const metaCache = new Map<string, MovieMeta>();
 
 /**
  * Full metadata (synopsis, genres) for an IMDb id.
@@ -110,13 +158,20 @@ export async function getMetaById(
   imdbId: string,
   type: MediaType = "movie",
 ): Promise<MovieMeta | null> {
+  const ck = `${type}|${imdbId}`;
+  const cached = metaCache.get(ck);
+  if (cached) return cached;
   try {
     const res = await fetch(`${CINEMETA}/meta/${type}/${encodeURIComponent(imdbId)}.json`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
     const body = (await res.json()) as { meta?: CinemetaMeta };
-    return body.meta ? mapMeta(body.meta) : null;
+    if (!body.meta) return null;
+    const meta = mapMeta(body.meta);
+    if (metaCache.size > 3000) metaCache.clear();
+    metaCache.set(ck, meta);
+    return meta;
   } catch {
     return null;
   }
