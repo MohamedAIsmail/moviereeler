@@ -86,13 +86,16 @@ export async function enforceGeneration(who: {
   if (!looksLikeBrowser()) return { ok: false, code: "bot", message: MESSAGES.bot };
 
   const db = await admin();
-  const scope = (q: ReturnType<typeof db.from>["select"] extends never ? never : any) =>
-    who.userId ? q.eq("user_id", who.userId) : q.eq("ip_hash", who.ipHash ?? "none");
+  const column = who.userId ? "user_id" : "ip_hash";
+  const value = who.userId ?? who.ipHash ?? "none";
 
   // Spacing check.
-  const { data: last } = await scope(
-    db.from("ai_usage").select("created_at").order("created_at", { ascending: false }).limit(1),
-  );
+  const { data: last } = await db
+    .from("ai_usage")
+    .select("created_at")
+    .eq(column, value)
+    .order("created_at", { ascending: false })
+    .limit(1);
   const lastAt = last?.[0]?.created_at ? Date.parse(last[0].created_at) : 0;
   if (lastAt && Date.now() - lastAt < MIN_INTERVAL_MS) {
     return { ok: false, code: "too_fast", message: MESSAGES.too_fast };
@@ -100,9 +103,11 @@ export async function enforceGeneration(who: {
 
   // Daily quota.
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-  const { count } = await scope(
-    db.from("ai_usage").select("id", { count: "exact", head: true }).gte("created_at", since),
-  );
+  const { count } = await db
+    .from("ai_usage")
+    .select("id", { count: "exact", head: true })
+    .eq(column, value)
+    .gte("created_at", since);
   const limit = who.userId ? USER_DAILY_LIMIT : GUEST_DAILY_LIMIT;
   if ((count ?? 0) >= limit) {
     return { ok: false, code: "rate_limit", message: MESSAGES.rate_limit };
