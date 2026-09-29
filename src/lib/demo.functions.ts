@@ -13,9 +13,12 @@ export const demoSearch = createServerFn({ method: "POST" })
       .parse(input),
   )
   .handler(async ({ data }) => {
-    const { searchMovies } = await import("./movie-meta.server");
-    const results = await searchMovies(data.query, 12, data.mediaType);
-    return results.map((r) => ({ title: r.title, year: r.year, posterUrl: r.posterUrl }));
+    const { searchMoviesDetailed } = await import("./movie-meta.server");
+    const { results, failed } = await searchMoviesDetailed(data.query, 12, data.mediaType);
+    return {
+      failed,
+      results: results.map((r) => ({ title: r.title, year: r.year, posterUrl: r.posterUrl })),
+    };
   });
 
 export interface DemoPick {
@@ -29,7 +32,18 @@ export interface DemoPick {
   hook: string;
 }
 
-export const demoRecommend = createServerFn({ method: "POST" })
+export interface DemoCandidate {
+  title: string;
+  year: number;
+  original_title: string | null;
+  imdb_id: string | null;
+  because: string;
+  hook: string;
+  matchScore: number;
+}
+
+/** Phase 1: AI candidates only — fast. The client resolves each one in parallel. */
+export const demoCandidates = createServerFn({ method: "POST" })
   .inputValidator((input: unknown) =>
     z
       .object({
@@ -42,14 +56,12 @@ export const demoRecommend = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<{ picks: DemoPick[]; error?: string }> => {
-    const { sha, cacheGet, cacheSet, clientIpHash, enforceLimit } = await import(
-      "./usage.server"
-    );
+  .handler(async ({ data }): Promise<{ candidates: DemoCandidate[]; error?: string }> => {
+    const { sha, cacheGet, cacheSet, clientIpHash, enforceLimit } = await import("./usage.server");
     const note = data.note?.trim() || null;
     const cacheable = data.exclude.length === 0 && !data.refine && !note && data.count === 3;
     const key = await sha(
-      "v2|" +
+      "v3|" +
         data.mediaType +
         "|" +
         data.picks
@@ -58,8 +70,8 @@ export const demoRecommend = createServerFn({ method: "POST" })
           .join(";"),
     );
     if (cacheable) {
-      const cached = await cacheGet<DemoPick[]>(key);
-      if (cached) return { picks: cached };
+      const cached = await cacheGet<DemoCandidate[]>(key);
+      if (cached) return { candidates: cached };
     }
 
     try {
@@ -67,7 +79,7 @@ export const demoRecommend = createServerFn({ method: "POST" })
       if (data.count === 1) await enforceLimit({ ipHash }, "demo-refill", 30);
       else await enforceLimit({ ipHash }, "demo", 10);
     } catch (e) {
-      return { picks: [], error: (e as Error).message };
+      return { candidates: [], error: (e as Error).message };
     }
 
     const loved = data.picks.map((p) => ({
@@ -88,8 +100,8 @@ export const demoRecommend = createServerFn({ method: "POST" })
     };
     const selected = data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`);
     try {
-      const { generateResolvedPicks } = await import("./recommend.server");
-      const resolved = await generateResolvedPicks(
+      const { generateCandidates } = await import("./recommend.server");
+      const candidates = await generateCandidates(
         profile,
         [...selected, ...data.exclude],
         null,
@@ -97,23 +109,58 @@ export const demoRecommend = createServerFn({ method: "POST" })
         data.count,
         { refine: data.refine ?? null, note, anchors: selected },
       );
-      if (resolved.length < data.count) {
-        return { picks: [], error: "We couldn’t find picks right now. Please try again." };
+      if (!candidates.length) {
+        return { candidates: [], error: "We couldn’t find picks right now. Please try again." };
       }
-      const picks: DemoPick[] = resolved.map((s) => ({
-        title: s.meta.title || s.title,
-        year: s.meta.year ?? s.year ?? null,
-        matchScore: Math.min(99, Math.max(1, Math.round(s.matchScore))),
-        posterUrl: s.meta.posterUrl,
-        overview: s.meta.overview,
-        genres: s.meta.genres,
-        because: s.because,
-        hook: s.hook,
-      }));
-      if (cacheable) await cacheSet(key, picks);
-      return { picks };
+      if (cacheable) await cacheSet(key, candidates);
+      return { candidates };
     } catch (e) {
       console.error(e);
-      return { picks: [], error: "We couldn’t find picks right now. Please try again." };
+      return { candidates: [], error: "We couldn’t find picks right now. Please try again." };
     }
+  });
+
+/** Phase 2: resolve one candidate against the catalog. Null = incomplete, skip it. */
+export const demoResolve = createServerFn({ method: "POST" })
+  .inputValidator((input: unknown) =>
+    z
+      .object({
+        mediaType: z.enum(["movie", "series"]),
+        exclude: z.array(z.string().max(320)).max(160).default([]),
+        candidate: z.object({
+          title: z.string().min(1).max(300),
+          year: z.number().int(),
+          original_title: z.string().max(300).nullable(),
+          imdb_id: z.string().max(20).nullable(),
+          because: z.string().max(400),
+          hook: z.string().max(400),
+          matchScore: z.number(),
+        }),
+      })
+      .parse(input),
+  )
+  .handler(async ({ data }): Promise<DemoPick | null> => {
+    const { resolvePick } = await import("./movie-meta.server");
+    const { normTitle } = await import("./recommend.server");
+    const c = data.candidate;
+    const meta = await resolvePick(
+      { title: c.title, year: c.year, originalTitle: c.original_title, imdbId: c.imdb_id },
+      data.mediaType,
+    );
+    if (!meta?.posterUrl || !meta.overview) {
+      console.warn(`[demo] unresolved ${data.mediaType}: "${c.title}" (${c.year})`);
+      return null;
+    }
+    const mk = normTitle(meta.title);
+    if (mk !== normTitle(c.title) && data.exclude.some((e) => normTitle(e) === mk)) return null;
+    return {
+      title: meta.title || c.title,
+      year: meta.year ?? c.year ?? null,
+      matchScore: Math.min(99, Math.max(1, Math.round(c.matchScore))),
+      posterUrl: meta.posterUrl,
+      overview: meta.overview,
+      genres: meta.genres,
+      because: c.because,
+      hook: c.hook,
+    };
   });
