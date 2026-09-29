@@ -155,7 +155,7 @@ export async function generateResolvedPicks(
   const seen = new Set<string>(exclude.map(normTitle));
 
   for (let attempt = 0; attempt <= retries && out.length < want; attempt++) {
-    const ask = Math.min(12, Math.max((want - out.length) * 2 + 2, 5));
+    const ask = Math.min(12, want - out.length + 2);
     const slate = (await generateSlate(profile, shown, mood, mediaType, { ...opts, count: ask }))
       .sort((a, b) => b.matchScore - a.matchScore);
     shown.push(...slate.map((s) => `${s.title}${s.year ? ` (${s.year})` : ""}`));
@@ -200,6 +200,31 @@ export async function generateResolvedPicks(
     for (const r of resolved) if (r && out.length < want) out.push(r);
   }
   return out;
+}
+
+/** Fast first phase: AI candidates only (no catalog lookups), exclusions filtered. */
+export async function generateCandidates(
+  profile: TasteProfile,
+  exclude: string[],
+  mood: string | null,
+  mediaType: MediaType,
+  want: number,
+  opts: GenOptions = {},
+): Promise<RawRecommendation[]> {
+  const seen = new Set(exclude.map(normTitle));
+  const slate = await generateSlate(profile, exclude, mood, mediaType, {
+    ...opts,
+    count: want + 2,
+  });
+  return slate
+    .filter((s) => {
+      const k = normTitle(s.title);
+      const ko = s.original_title ? normTitle(s.original_title) : "";
+      if (seen.has(k) || (ko && seen.has(ko))) return false;
+      seen.add(k);
+      return true;
+    })
+    .sort((a, b) => b.matchScore - a.matchScore);
 }
 
 const PickSchema = z.object({
@@ -251,6 +276,8 @@ async function callModel(
     },
     body: JSON.stringify({
       model: "google/gemini-3.6-flash",
+      // Taste reasoning lives in the prompt; heavy model "thinking" was the main latency cost.
+      reasoning_effort: "low",
       messages: [
         { role: "system", content: systemPrompt(mediaType) },
         { role: "user", content: buildPrompt(profile, exclude, mood, mediaType, opts) },

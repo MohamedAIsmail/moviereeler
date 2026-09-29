@@ -158,13 +158,20 @@ export async function getMetaById(
   imdbId: string,
   type: MediaType = "movie",
 ): Promise<MovieMeta | null> {
+  const ck = `${type}|${imdbId}`;
+  const cached = metaCache.get(ck);
+  if (cached) return cached;
   try {
     const res = await fetch(`${CINEMETA}/meta/${type}/${encodeURIComponent(imdbId)}.json`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
     if (!res.ok) return null;
     const body = (await res.json()) as { meta?: CinemetaMeta };
-    return body.meta ? mapMeta(body.meta) : null;
+    if (!body.meta) return null;
+    const meta = mapMeta(body.meta);
+    if (metaCache.size > 3000) metaCache.clear();
+    metaCache.set(ck, meta);
+    return meta;
   } catch {
     return null;
   }
