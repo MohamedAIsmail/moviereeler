@@ -51,6 +51,12 @@ function AccountPage() {
       <h1 className="font-display text-3xl font-bold">Your account</h1>
       <p className="mt-2 text-sm text-muted-foreground">Signed in as {user.email}</p>
 
+      <p className="mt-4 text-sm">
+        <Link to="/admin" className="text-primary hover:underline">
+          Usage dashboard
+        </Link>
+      </p>
+
       <section className="mt-8 rounded-2xl border border-destructive/40 bg-card p-6">
         <h2 className="font-display text-lg font-semibold">Delete account</h2>
         <p className="mt-1 text-sm text-muted-foreground">
