@@ -49,6 +49,7 @@ function DiscoverPage() {
   const [refine, setRefine] = useState<RefineKey | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pendingSlots, setPendingSlots] = useState(0);
 
   const [mediaType, setMediaType] = useState<MediaType>("movie");
   const copy = copyFor(mediaType);
@@ -98,15 +99,18 @@ function DiscoverPage() {
     queryClient.setQueryData(["recommendations", mediaType], (old: typeof items | undefined) =>
       old?.filter((r) => r.id !== id),
     );
+    setPendingSlots((n) => n + 1);
     try {
       await sendMark({ data: { id, kind } });
       await generate({
         data: { mood: mood.trim() || null, mediaType, note: note.trim() || null, count: 1, replaceNew: false, refine },
       });
+      await invalidate();
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setPendingSlots((n) => Math.max(0, n - 1));
     }
-    void invalidate();
   }
 
   async function updateStatus(id: string, status: "saved" | "dismissed") {
@@ -239,6 +243,21 @@ function DiscoverPage() {
                     </a>
                   </Button>
                 </div>
+              </div>
+            </li>
+          ))}
+          {Array.from({ length: pendingSlots }).map((_, i) => (
+            <li
+              key={`pending-${i}`}
+              aria-busy="true"
+              className="flex animate-pulse gap-4 rounded-2xl border border-border/70 bg-card p-4 sm:gap-6 sm:p-5"
+            >
+              <div className="aspect-[2/3] w-24 shrink-0 rounded-lg bg-secondary sm:w-32" />
+              <div className="flex-1 space-y-3 pt-1">
+                <div className="h-5 w-1/2 rounded bg-secondary" />
+                <div className="h-3 w-1/4 rounded bg-secondary" />
+                <div className="h-4 w-full rounded bg-secondary" />
+                <div className="h-4 w-5/6 rounded bg-secondary" />
               </div>
             </li>
           ))}
