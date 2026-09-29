@@ -56,31 +56,31 @@ export const demoCandidates = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<{ candidates: DemoCandidate[]; error?: string }> => {
-    const { sha, cacheGet, cacheSet, clientIpHash, enforceLimit } = await import("./usage.server");
-    const note = data.note?.trim() || null;
-    const cacheable = data.exclude.length === 0 && !data.refine && !note && data.count === 3;
-    const key = await sha(
-      "v3|" +
-        data.mediaType +
-        "|" +
-        data.picks
-          .map((p) => `${p.title.toLowerCase()}|${p.year ?? ""}`)
-          .sort()
-          .join(";"),
-    );
-    if (cacheable) {
-      const cached = await cacheGet<DemoCandidate[]>(key);
-      if (cached) return { candidates: cached };
-    }
+  .handler(
+    async ({
+      data,
+    }): Promise<{ candidates: DemoCandidate[]; error?: string; errorCode?: string }> => {
+      const { sha, cacheGet, cacheSet, clientIpHash, enforceGeneration } = await import(
+        "./usage.server"
+      );
+      const note = data.note?.trim() || null;
+      const cacheable = data.exclude.length === 0 && !data.refine && !note && data.count === 3;
+      const key = await sha(
+        "v3|" +
+          data.mediaType +
+          "|" +
+          data.picks
+            .map((p) => `${p.title.toLowerCase()}|${p.year ?? ""}`)
+            .sort()
+            .join(";"),
+      );
+      if (cacheable) {
+        const cached = await cacheGet<DemoCandidate[]>(key);
+        if (cached) return { candidates: cached };
+      }
 
-    try {
-      const ipHash = await clientIpHash();
-      if (data.count === 1) await enforceLimit({ ipHash }, "demo-refill", 30);
-      else await enforceLimit({ ipHash }, "demo", 10);
-    } catch (e) {
-      return { candidates: [], error: (e as Error).message };
-    }
+      const gate = await enforceGeneration({ ipHash: await clientIpHash() });
+      if (!gate.ok) return { candidates: [], error: gate.message, errorCode: gate.code };
 
     const loved = data.picks.map((p) => ({
       id: "",
