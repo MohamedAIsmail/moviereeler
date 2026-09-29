@@ -75,7 +75,7 @@ function TryPage() {
         for (let attempt = 0; attempt < 2; attempt++) {
           let r: Awaited<ReturnType<typeof search>> | null = null;
           try {
-            r = await search({ data: { query: q, mediaType }} });
+            r = await search({ data: { query: q, mediaType } });
           } catch {
             if (ctrl.signal.aborted) return;
           }
