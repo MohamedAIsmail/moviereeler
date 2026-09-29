@@ -53,6 +53,8 @@ export const listRecommendations = createServerFn({ method: "GET" })
     return rows;
   });
 
+const RefineEnum = z.enum(["obscure", "recent", "lighter", "darker", "director", "shorter"]);
+
 export const generateRecommendations = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
@@ -60,19 +62,63 @@ export const generateRecommendations = createServerFn({ method: "POST" })
       .object({
         mood: z.string().max(200).nullable().optional(),
         mediaType: MediaTypeSchema.default("movie"),
+        count: z.number().int().min(1).max(12).default(12),
+        replaceNew: z.boolean().default(true),
+        refine: RefineEnum.nullable().optional(),
+        note: z.string().max(200).nullable().optional(),
       })
       .parse(input ?? {}),
   )
   .handler(async ({ data, context }) => {
     const { enforceLimit } = await import("./usage.server");
-    await enforceLimit({ userId: context.userId }, "recommend", 15);
+    // Single-slot refills get a separate, roomier budget.
+    if (data.count === 1) await enforceLimit({ userId: context.userId }, "refill", 60);
+    else await enforceLimit({ userId: context.userId }, "recommend", 30);
     const { refreshRecommendations } = await import("./recommend.server");
     return refreshRecommendations(
       context.supabase,
       context.userId,
       data.mood?.trim() || null,
       data.mediaType,
+      {
+        count: data.count,
+        replaceNew: data.replaceNew,
+        refine: data.refine ?? null,
+        note: data.note?.trim() || null,
+      },
     );
+  });
+
+export const markPick = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: unknown) =>
+    z.object({ id: z.string().uuid(), kind: z.enum(["seen", "rejected"]) }).parse(input),
+  )
+  .handler(async ({ data, context }) => {
+    const { data: rec, error } = await context.supabase
+      .from("recommendations")
+      .select("title, year, media_type")
+      .eq("id", data.id)
+      .eq("user_id", context.userId)
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    if (!rec) throw new Error("Pick not found");
+    await context.supabase.from("pick_feedback").upsert(
+      {
+        user_id: context.userId,
+        title: rec.title,
+        year: rec.year,
+        media_type: rec.media_type,
+        kind: data.kind,
+      },
+      { onConflict: "user_id,media_type,title,year" },
+    );
+    await context.supabase
+      .from("recommendations")
+      .update({ status: "dismissed", feedback: data.kind === "rejected" ? -1 : null })
+      .eq("id", data.id)
+      .eq("user_id", context.userId);
+    return { ok: true };
   });
 
 export const setRecommendationStatus = createServerFn({ method: "POST" })
