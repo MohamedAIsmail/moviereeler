@@ -56,69 +56,79 @@ export const demoCandidates = createServerFn({ method: "POST" })
       })
       .parse(input),
   )
-  .handler(async ({ data }): Promise<{ candidates: DemoCandidate[]; error?: string }> => {
-    const { sha, cacheGet, cacheSet, clientIpHash, enforceLimit } = await import("./usage.server");
-    const note = data.note?.trim() || null;
-    const cacheable = data.exclude.length === 0 && !data.refine && !note && data.count === 3;
-    const key = await sha(
-      "v3|" +
-        data.mediaType +
-        "|" +
-        data.picks
-          .map((p) => `${p.title.toLowerCase()}|${p.year ?? ""}`)
-          .sort()
-          .join(";"),
-    );
-    if (cacheable) {
-      const cached = await cacheGet<DemoCandidate[]>(key);
-      if (cached) return { candidates: cached };
-    }
-
-    try {
-      const ipHash = await clientIpHash();
-      if (data.count === 1) await enforceLimit({ ipHash }, "demo-refill", 30);
-      else await enforceLimit({ ipHash }, "demo", 10);
-    } catch (e) {
-      return { candidates: [], error: (e as Error).message };
-    }
-
-    const loved = data.picks.map((p) => ({
-      id: "",
-      title: p.title,
-      year: p.year ?? null,
-      rating: 9,
-      watched_on: null,
-    }));
-    const profile = {
-      total: loved.length,
-      loved: loved as never,
-      liked: [],
-      disliked: [],
-      recent: [],
-      decades: [],
-      averageRating: null,
-    };
-    const selected = data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`);
-    try {
-      const { generateCandidates } = await import("./recommend.server");
-      const candidates = await generateCandidates(
-        profile,
-        [...selected, ...data.exclude],
-        null,
-        data.mediaType,
-        data.count,
-        { refine: data.refine ?? null, note, anchors: selected },
+  .handler(
+    async ({
+      data,
+    }): Promise<{ candidates: DemoCandidate[]; error?: string; errorCode?: string }> => {
+      const { sha, cacheGet, cacheSet, clientIpHash, enforceGeneration } = await import(
+        "./usage.server"
       );
-      if (!candidates.length) {
-        return { candidates: [], error: "We couldn’t find picks right now. Please try again." };
+      const note = data.note?.trim() || null;
+      const cacheable = data.exclude.length === 0 && !data.refine && !note && data.count === 3;
+      const key = await sha(
+        "v3|" +
+          data.mediaType +
+          "|" +
+          data.picks
+            .map((p) => `${p.title.toLowerCase()}|${p.year ?? ""}`)
+            .sort()
+            .join(";"),
+      );
+      if (cacheable) {
+        const cached = await cacheGet<DemoCandidate[]>(key);
+        if (cached) return { candidates: cached };
       }
-      if (cacheable) await cacheSet(key, candidates);
-      return { candidates };
-    } catch (e) {
-      console.error(e);
-      return { candidates: [], error: "We couldn’t find picks right now. Please try again." };
-    }
-  });
+
+      const gate = await enforceGeneration({ ipHash: await clientIpHash() });
+      if (!gate.ok)
+        return {
+          candidates: [],
+          error: gate.message ?? "Something went wrong — try again",
+          errorCode: gate.code ?? "failed",
+        };
+
+      const loved = data.picks.map((p) => ({
+        id: "",
+        title: p.title,
+        year: p.year ?? null,
+        rating: 9,
+        watched_on: null,
+      }));
+      const profile = {
+        total: loved.length,
+        loved: loved as never,
+        liked: [],
+        disliked: [],
+        recent: [],
+        decades: [],
+        averageRating: null,
+      };
+      const selected = data.picks.map((p) => `${p.title}${p.year ? ` (${p.year})` : ""}`);
+      try {
+        const { generateCandidates } = await import("./recommend.server");
+        const candidates = await generateCandidates(
+          profile,
+          [...selected, ...data.exclude],
+          null,
+          data.mediaType,
+          data.count,
+          { refine: data.refine ?? null, note, anchors: selected },
+        );
+        if (!candidates.length) {
+          return {
+            candidates: [],
+            error: "Something went wrong — try again",
+            errorCode: "failed",
+          };
+        }
+        if (cacheable) await cacheSet(key, candidates);
+        return { candidates };
+      } catch (e) {
+        console.error(e);
+        return { candidates: [], error: "Something went wrong — try again", errorCode: "failed" };
+      }
+    },
+  );
 
 /** Phase 2: resolve one candidate against the catalog. Null = incomplete, skip it. */
 export const demoResolve = createServerFn({ method: "POST" })

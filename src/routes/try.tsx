@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Ban, Check, Clapperboard, Eye, Loader2, Play, Plus, Search, Sparkles, X } from "lucide-react";
 import { RefineBar } from "@/components/RefineBar";
 import { trailerUrl, type RefineKey } from "@/lib/refine";
-import { toast } from "sonner";
+import { AlertCircle } from "lucide-react";
 import { demoCandidates, demoResolve, demoSearch, type DemoPick } from "@/lib/demo.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -57,6 +57,8 @@ function TryPage() {
   const [refine, setRefine] = useState<RefineKey | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
+  const [genError, setGenError] = useState<{ message: string; limit: boolean } | null>(null);
+  const retryRef = useRef<null | (() => void)>(null);
 
   const noun = mediaType === "series" ? "series" : "movies";
 
@@ -113,26 +115,35 @@ function TryPage() {
   const label = (p: { title: string; year: number | null }) =>
     `${p.title}${p.year ? ` (${p.year})` : ""}`;
 
+  const GENERIC = "Something went wrong — try again";
+
   /** Fill the given (skeleton) slots: one fast AI call, then resolve each pick in parallel. */
   async function fill(keys: string[], opts: { refine: RefineKey | null; exclude: string[] }) {
     const dropSlots = () => setSlate((s) => s.filter((x) => !keys.includes(x.key) || x.pick));
+    setGenError(null);
     let res: Awaited<ReturnType<typeof getCandidates>>;
     try {
-      res = await getCandidates({
-        data: {
-          mediaType,
-          picks: picked.map((p) => ({ title: p.title, year: p.year })),
-          exclude: opts.exclude.slice(-150),
-          refine: opts.refine,
-          note: note.trim() || null,
-          count: keys.length,
-        },
-      });
+      res = await Promise.race([
+        getCandidates({
+          data: {
+            mediaType,
+            picks: picked.map((p) => ({ title: p.title, year: p.year })),
+            exclude: opts.exclude.slice(-150),
+            refine: opts.refine,
+            note: note.trim() || null,
+            count: keys.length,
+          },
+        }),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 30_000)),
+      ]);
     } catch {
-      res = { candidates: [], error: "We couldn’t find picks right now. Please try again." };
+      res = { candidates: [], error: GENERIC, errorCode: "failed" };
     }
     if (res.error || !res.candidates.length) {
-      toast.error(res.error ?? "We couldn’t find picks right now. Please try again.");
+      setGenError({
+        message: res.error ?? GENERIC,
+        limit: res.errorCode === "rate_limit",
+      });
       dropSlots();
       return;
     }
@@ -156,6 +167,7 @@ function TryPage() {
   }
 
   async function go() {
+    retryRef.current = () => void go();
     const keys = newKeys(3);
     setLoading(true);
     setRefine(null);
@@ -168,6 +180,7 @@ function TryPage() {
   }
 
   async function runRefine(k: RefineKey) {
+    retryRef.current = () => void runRefine(k);
     const keys = newKeys(3);
     setRefine(k);
     setBusy(true);
@@ -180,6 +193,7 @@ function TryPage() {
   }
 
   async function more() {
+    retryRef.current = () => void more();
     const keys = newKeys(3);
     setBusy(true);
     setSlate((s) => [...s, ...keys.map((key) => ({ key, pick: null }))]);
@@ -347,6 +361,38 @@ function TryPage() {
           {loading ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
           {picked.length < 3 ? `Pick ${3 - picked.length} more` : "Show my picks"}
         </Button>
+
+        {genError && (
+          <div className="mt-8 rounded-2xl border border-border/70 bg-card p-6">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="mt-0.5 size-5 shrink-0 text-primary" />
+              <div className="min-w-0">
+                <p className="font-display text-lg font-semibold">
+                  {genError.limit ? "That’s today’s free picks" : "Something went wrong"}
+                </p>
+                <p className="mt-1 text-sm text-muted-foreground">{genError.message}</p>
+                <div className="mt-4">
+                  {genError.limit ? (
+                    <Button asChild>
+                      <Link to="/auth">Create free account</Link>
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="secondary"
+                      onClick={() => {
+                        setGenError(null);
+                        retryRef.current?.();
+                      }}
+                    >
+                      Try again
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
 
         {slate.length > 0 && (
           <section className="mt-10">

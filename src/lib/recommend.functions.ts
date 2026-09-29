@@ -70,10 +70,9 @@ export const generateRecommendations = createServerFn({ method: "POST" })
       .parse(input ?? {}),
   )
   .handler(async ({ data, context }) => {
-    const { enforceLimit } = await import("./usage.server");
-    // Single-slot refills get a separate, roomier budget.
-    if (data.count === 1) await enforceLimit({ userId: context.userId }, "refill", 60);
-    else await enforceLimit({ userId: context.userId }, "recommend", 30);
+    const { enforceGeneration } = await import("./usage.server");
+    const gate = await enforceGeneration({ userId: context.userId });
+    if (!gate.ok) throw new Error(gate.message ?? "Something went wrong — try again");
     const { refreshRecommendations } = await import("./recommend.server");
     return refreshRecommendations(
       context.supabase,
