@@ -48,15 +48,25 @@ export function buildTasteProfile(library: WatchedMovie[]): TasteProfile {
   };
 }
 
+export interface GenOptions {
+  refine?: RefineKey | null;
+  note?: string | null;
+  /** Titles the viewer explicitly picked; "because" lines should cite these. */
+  anchors?: string[];
+  count?: number;
+}
+
 function buildPrompt(
   profile: TasteProfile,
   exclude: string[],
   mood: string | null,
   mediaType: MediaType,
+  opts: GenOptions,
 ) {
   const noun = mediaType === "series" ? "TV series" : "films";
   const section = (title: string, movies: WatchedMovie[]) =>
     movies.length ? `${title}:\n${movies.map((m) => `- ${label(m)}`).join("\n")}` : "";
+  const refine = opts.refine ? REFINES[opts.refine] : null;
 
   return [
     `The viewer has logged ${profile.total} ${noun}.` +
@@ -71,9 +81,14 @@ function buildPrompt(
     section("DISLIKED (avoid these qualities)", profile.disliked),
     section("RECENTLY WATCHED (current mood)", profile.recent),
     mood ? `The viewer is specifically in the mood for: "${mood}". Weight this heavily.` : "",
+    refine
+      ? `REFINE INSTRUCTION (must follow): ${refine.prompt} Every "because" line must reflect this instruction explicitly (e.g. "Lighter than your picks, but it keeps the same...").`
+      : "",
+    opts.note ? `Extra request from the viewer (must respect): "${opts.note}"` : "",
     `Recommend ONLY ${mediaType === "series" ? "television series (no feature films)" : "feature films (no television series)"}.`,
+    `Return ${opts.count ?? 12} recommendations. Across the picks, cite at least 2 different titles from the viewer's list in the "because" lines where possible.`,
     exclude.length
-      ? `NEVER recommend any of these — already seen or already suggested:\n${exclude.join(", ")}`
+      ? `NEVER RECOMMEND any of these — already selected, seen, rejected or already shown:\n${exclude.join(", ")}`
       : "",
   ]
     .filter(Boolean)
@@ -86,15 +101,17 @@ function systemPrompt(mediaType: MediaType) {
 
 Method (follow strictly):
 1. Infer the viewer's underlying taste VECTORS from their ratings, not surface genres: tone, pacing, moral ambiguity, visual style, era affinity, creator/writer signatures, national ${mediaType === "series" ? "television" : "cinemas"}, structural risk-taking, emotional register.
-2. Pay close attention to what they rated LOW — those are anti-signals. Never recommend something that shares the disliked qualities.
-3. Contrast their ratings against the general consensus. Where they diverge from popular opinion, that divergence is the most valuable signal you have.
-4. Build a slate, not a list. Roughly: 5 high-confidence bullseyes, 4 adjacent discoveries they likely haven't considered, and 3 genuine stretches that follow one strong thread of their taste. Avoid obvious mass-market ${noun}s unless their profile clearly points there.
-5. No franchise filler, no padding with the same creator more than twice, and never recommend a title in the exclusion list.
+2. Pay close attention to what they rated LOW — those are anti-signals.
+3. Where they diverge from popular opinion, that divergence is the most valuable signal you have.
+4. Build a slate, not a list: bullseyes, adjacent discoveries and a few genuine stretches. Avoid obvious mass-market ${noun}s unless their profile clearly points there.
+5. No franchise filler, no padding with the same creator more than twice, never recommend a title in the exclusion list.
 6. Recommend ONLY ${mediaType === "series" ? "TV series" : "feature films"}. The "year" is the first-release year.
 
-For each pick, the "reason" must name at least one specific title from THEIR list and explain the concrete connection in 1-2 sharp sentences. Never write generic copy.
+For each pick write:
+- "because": ONE specific sentence starting with "Because you liked <Title>:" naming at least one title from THEIR list and the concrete connection — tone, themes, structure, pacing, director style or mood. Generic genre words alone ("both are thrillers") are forbidden. Example: "Because you liked Coherence: another low-budget mind-bender where one dinner party unravels reality through dialogue, not effects."
+- "hook": a spoiler-free story pitch, at most 2 short lines (~30 words), written to make someone want to press play.
 
-matchScore is your honest confidence from 60-99. Do not inflate — the stretches should score lower than the bullseyes.`;
+matchScore is your honest confidence from 60-99. Do not inflate.`;
 }
 
 export interface RawRecommendation {
@@ -102,7 +119,8 @@ export interface RawRecommendation {
   year: number;
   original_title: string | null;
   imdb_id: string | null;
-  reason: string;
+  because: string;
+  hook: string;
   matchScore: number;
 }
 
@@ -110,9 +128,15 @@ export interface ResolvedPick extends RawRecommendation {
   meta: import("./movie-meta.server").MovieMeta;
 }
 
+export const normTitle = (t: string) =>
+  t
+    .replace(/\s*\(\d{4}\)\s*$/, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+
 /**
- * Resolve picks against the catalog; drop ones with no poster AND no overview
- * (or missing either), then ask the AI for replacements up to `retries` times.
+ * Resolve picks against the catalog; drop excluded ones and ones missing a
+ * poster or overview, then ask the AI for replacements up to `retries` times.
  */
 export async function generateResolvedPicks(
   profile: TasteProfile,
@@ -120,22 +144,31 @@ export async function generateResolvedPicks(
   mood: string | null,
   mediaType: MediaType,
   want: number,
+  opts: GenOptions = {},
   retries = 2,
 ): Promise<ResolvedPick[]> {
   const { resolvePick } = await import("./movie-meta.server");
   const out: ResolvedPick[] = [];
   const shown = [...exclude];
-  const key = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  const seen = new Set<string>();
+  const seen = new Set<string>(exclude.map(normTitle));
 
   for (let attempt = 0; attempt <= retries && out.length < want; attempt++) {
-    const slate = (await generateSlate(profile, shown, mood, mediaType))
-      .filter((s) => !seen.has(key(s.title)))
+    const ask = Math.min(12, Math.max((want - out.length) * 2 + 2, 5));
+    const slate = (await generateSlate(profile, shown, mood, mediaType, { ...opts, count: ask }))
       .sort((a, b) => b.matchScore - a.matchScore);
-    for (const s of slate) seen.add(key(s.title));
     shown.push(...slate.map((s) => `${s.title}${s.year ? ` (${s.year})` : ""}`));
+    const fresh = slate.filter((s) => {
+      const k = normTitle(s.title);
+      const ko = s.original_title ? normTitle(s.original_title) : "";
+      if (seen.has(k) || (ko && seen.has(ko))) {
+        console.warn(`[recommend] filtered excluded pick: "${s.title}"`);
+        return false;
+      }
+      seen.add(k);
+      return true;
+    });
 
-    const candidates = slate.slice(0, Math.max(want - out.length + 3, want * 2));
+    const candidates = fresh.slice(0, Math.max(want - out.length + 3, want * 2));
     let cursor = 0;
     const resolved: (ResolvedPick | null)[] = new Array(candidates.length).fill(null);
     await Promise.all(
@@ -147,8 +180,12 @@ export async function generateResolvedPicks(
             { title: s.title, year: s.year, originalTitle: s.original_title, imdbId: s.imdb_id },
             mediaType,
           );
-          if (meta?.posterUrl && meta.overview) resolved[i] = { ...s, meta };
-          else
+          if (meta?.posterUrl && meta.overview) {
+            // Catalog title may differ from the AI's; re-check it against exclusions.
+            const mk = normTitle(meta.title);
+            if (mk !== normTitle(s.title) && exclude.some((e) => normTitle(e) === mk)) continue;
+            resolved[i] = { ...s, meta };
+          } else
             console.warn(
               `[recommend] unresolved ${mediaType}: "${s.title}" (${s.year})` +
                 (s.original_title ? ` orig="${s.original_title}"` : "") +
@@ -163,12 +200,44 @@ export async function generateResolvedPicks(
   return out;
 }
 
+const PickSchema = z.object({
+  title: z.string().min(1).max(300),
+  year: z.number().int().min(1880).max(2100),
+  original_title: z.string().max(300).nullable(),
+  imdb_id: z.string().max(20).nullable(),
+  because: z.string().min(10).max(400),
+  hook: z.string().min(10).max(400),
+  matchScore: z.number(),
+});
+const SlateSchema = z.object({ recommendations: z.array(PickSchema).min(1) });
+
 export async function generateSlate(
   profile: TasteProfile,
   exclude: string[],
   mood: string | null,
   mediaType: MediaType = "movie",
+  opts: GenOptions = {},
 ): Promise<RawRecommendation[]> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const text = await callModel(profile, exclude, mood, mediaType, opts);
+    try {
+      const jsonText = text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+      const parsed = SlateSchema.parse(JSON.parse(jsonText));
+      return parsed.recommendations.slice(0, 12);
+    } catch (e) {
+      console.warn(`[recommend] invalid AI JSON (attempt ${attempt + 1})`, (e as Error).message);
+    }
+  }
+  throw new Error("We couldn’t find picks right now. Please try again.");
+}
+
+async function callModel(
+  profile: TasteProfile,
+  exclude: string[],
+  mood: string | null,
+  mediaType: MediaType,
+  opts: GenOptions,
+): Promise<string> {
   const apiKey = process.env["LOVABLE_API_KEY"];
   if (!apiKey) throw new Error("AI is not configured for this project.");
 
@@ -182,7 +251,7 @@ export async function generateSlate(
       model: "google/gemini-3.6-flash",
       messages: [
         { role: "system", content: systemPrompt(mediaType) },
-        { role: "user", content: buildPrompt(profile, exclude, mood, mediaType) },
+        { role: "user", content: buildPrompt(profile, exclude, mood, mediaType, opts) },
       ],
       response_format: {
         type: "json_schema",
@@ -209,10 +278,11 @@ export async function generateSlate(
                       type: ["string", "null"],
                       description: "IMDb id like tt1234567 only if certain, else null",
                     },
-                    reason: { type: "string" },
+                    because: { type: "string" },
+                    hook: { type: "string" },
                     matchScore: { type: "integer" },
                   },
-                  required: ["title", "year", "original_title", "imdb_id", "reason", "matchScore"],
+                  required: ["title", "year", "original_title", "imdb_id", "because", "hook", "matchScore"],
                 },
               },
             },
@@ -230,10 +300,7 @@ export async function generateSlate(
   const body = (await res.json()) as {
     choices?: { message?: { content?: string } }[];
   };
-  const content = body.choices?.[0]?.message?.content ?? "";
-  const jsonText = content.slice(content.indexOf("{"), content.lastIndexOf("}") + 1);
-  const parsed = JSON.parse(jsonText) as { recommendations?: RawRecommendation[] };
-  return (parsed.recommendations ?? []).slice(0, 12);
+  return body.choices?.[0]?.message?.content ?? "";
 }
 
 export async function refreshRecommendations(
