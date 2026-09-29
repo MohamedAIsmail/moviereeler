@@ -38,7 +38,9 @@ let slotSeq = 0;
 const newKeys = (n: number) => Array.from({ length: n }, () => `slot-${++slotSeq}`);
 
 function TryPage() {
-  const search = useServerFn(demoSearch);
+  const searchFn = useServerFn(demoSearch);
+  const searchRef = useRef(searchFn);
+  searchRef.current = searchFn;
   const getCandidates = useServerFn(demoCandidates);
   const resolveOne = useServerFn(demoResolve);
   const [mediaType, setMediaType] = useState<"movie" | "series">("movie");
@@ -73,9 +75,9 @@ function TryPage() {
     const t = setTimeout(async () => {
       try {
         for (let attempt = 0; attempt < 2; attempt++) {
-          let r: Awaited<ReturnType<typeof search>> | null = null;
+          let r: Awaited<ReturnType<typeof searchFn>> | null = null;
           try {
-            r = await search({ data: { query: q, mediaType } });
+            r = await searchRef.current({ data: { query: q, mediaType } });
           } catch {
             if (ctrl.signal.aborted) return;
           }
@@ -98,7 +100,7 @@ function TryPage() {
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [query, mediaType, search]);
+  }, [query, mediaType]);
 
   function add(item: Item) {
     if (picked.length >= 10 || picked.some((p) => p.title === item.title && p.year === item.year)) return;
