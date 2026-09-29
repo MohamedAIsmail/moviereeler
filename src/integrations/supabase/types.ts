@@ -56,6 +56,36 @@ export type Database = {
         }
         Relationships: []
       }
+      pick_feedback: {
+        Row: {
+          created_at: string
+          id: string
+          kind: string
+          media_type: string
+          title: string
+          user_id: string
+          year: number | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          kind: string
+          media_type?: string
+          title: string
+          user_id: string
+          year?: number | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          kind?: string
+          media_type?: string
+          title?: string
+          user_id?: string
+          year?: number | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -85,6 +115,7 @@ export type Database = {
           created_at: string
           feedback: number | null
           genres: string[] | null
+          hook: string | null
           id: string
           imdb_id: string | null
           match_score: number | null
@@ -101,6 +132,7 @@ export type Database = {
           created_at?: string
           feedback?: number | null
           genres?: string[] | null
+          hook?: string | null
           id?: string
           imdb_id?: string | null
           match_score?: number | null
@@ -117,6 +149,7 @@ export type Database = {
           created_at?: string
           feedback?: number | null
           genres?: string[] | null
+          hook?: string | null
           id?: string
           imdb_id?: string | null
           match_score?: number | null
