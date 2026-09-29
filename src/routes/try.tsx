@@ -75,7 +75,7 @@ function TryPage() {
         for (let attempt = 0; attempt < 2; attempt++) {
           let r: Awaited<ReturnType<typeof search>> | null = null;
           try {
-            r = await search({ data: { query: q, mediaType }, signal: ctrl.signal });
+            r = await search({ data: { query: q, mediaType }, signal: ctrl.signal }).then((x) => { console.log("got", JSON.stringify(x).slice(0, 80)); return x; });
           } catch {
             if (ctrl.signal.aborted) return;
           }
