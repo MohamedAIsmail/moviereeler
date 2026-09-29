@@ -38,7 +38,7 @@ function AdminPage() {
 
   return (
     <AppShell>
-      <div className="mx-auto w-full max-w-3xl px-5 py-8">
+      <div className="w-full max-w-3xl">
         <h1 className="font-display text-3xl font-bold">Usage</h1>
 
         {isLoading && <Loader2 className="mt-8 size-5 animate-spin text-muted-foreground" />}
