@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Ban, Check, Clapperboard, Eye, Loader2, Play, Plus, Search, Sparkles, X } from "lucide-react";
 import { RefineBar } from "@/components/RefineBar";
 import { trailerUrl, type RefineKey } from "@/lib/refine";
-import { toast } from "sonner";
+import { AlertCircle } from "lucide-react";
 import { demoCandidates, demoResolve, demoSearch, type DemoPick } from "@/lib/demo.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
