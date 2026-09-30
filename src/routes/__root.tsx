@@ -13,6 +13,7 @@ import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
+import { initAnalytics, trackPageView } from "@/lib/analytics";
 
 function NotFoundComponent() {
   return (
@@ -131,6 +132,19 @@ function AuthSync() {
     });
     return () => data.subscription.unsubscribe();
   }, [router, queryClient]);
+
+  useEffect(() => {
+    initAnalytics();
+    let last = "";
+    const log = () => {
+      const path = window.location.pathname;
+      if (path === last) return;
+      last = path;
+      trackPageView(path);
+    };
+    log();
+    return router.subscribe("onResolved", log);
+  }, [router]);
 
   return null;
 }
