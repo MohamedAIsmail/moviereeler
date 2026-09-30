@@ -56,6 +56,33 @@ export type Database = {
         }
         Relationships: []
       }
+      events: {
+        Row: {
+          created_at: string
+          event_name: string
+          id: string
+          properties: Json
+          user_id: string | null
+          visitor_id: string
+        }
+        Insert: {
+          created_at?: string
+          event_name: string
+          id?: string
+          properties?: Json
+          user_id?: string | null
+          visitor_id: string
+        }
+        Update: {
+          created_at?: string
+          event_name?: string
+          id?: string
+          properties?: Json
+          user_id?: string | null
+          visitor_id?: string
+        }
+        Relationships: []
+      }
       pick_feedback: {
         Row: {
           created_at: string

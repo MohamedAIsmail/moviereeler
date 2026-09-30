@@ -9,6 +9,8 @@ import { toast } from "sonner";
 import { AppShell } from "@/components/AppShell";
 import { MediaToggle, type MediaType, copyFor } from "@/components/MediaToggle";
 import { Poster } from "@/components/Poster";
+import { PickReactions } from "@/components/PickReactions";
+import { track } from "@/lib/analytics";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { listLibrary } from "@/lib/movies.functions";
@@ -68,9 +70,13 @@ function DiscoverPage() {
   const generateMutation = useMutation({
     mutationFn: () => {
       setRefine(null);
+      track("picks_requested", { page: "discover", media_type: mediaType, mood: mood.trim() || null });
       return generate({ data: { mood: mood.trim() || null, mediaType, note: note.trim() || null } });
     },
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
+      await queryClient.invalidateQueries({ queryKey: ["recommendations", mediaType] });
+      const list = (queryClient.getQueryData(["recommendations", mediaType]) as { title: string; status: string }[] | undefined) ?? [];
+      track("picks_shown", { page: "discover", titles: list.filter((r) => r.status === "new").slice(0, 12).map((r) => r.title) });
       toast.success(`${result.count} new recommendations are ready`);
       void queryClient.invalidateQueries({ queryKey: ["recommendations", mediaType] });
     },
@@ -83,6 +89,7 @@ function DiscoverPage() {
 
   async function runGenerate(opts: { count: number; replaceNew: boolean; refine: RefineKey | null }) {
     setBusy(true);
+    track("picks_requested", { page: "discover", media_type: mediaType, refine: opts.refine, count: opts.count });
     try {
       await generate({
         data: { mood: mood.trim() || null, mediaType, note: note.trim() || null, ...opts },
@@ -96,6 +103,8 @@ function DiscoverPage() {
   }
 
   async function mark(id: string, kind: "seen" | "rejected") {
+    const it = items.find((r) => r.id === id);
+    track(kind === "seen" ? "seen_it" : "not_for_me", { title: it?.title, year: it?.year, page: "discover" });
     queryClient.setQueryData(["recommendations", mediaType], (old: typeof items | undefined) =>
       old?.filter((r) => r.id !== id),
     );
@@ -236,8 +245,14 @@ function DiscoverPage() {
                     <Ban className="size-4" />
                     Not for me
                   </Button>
+                  <PickReactions title={item.title} year={item.year} page="discover" />
                   <Button asChild variant="ghost" size="sm">
-                    <a href={trailerUrl(item.title, item.year)} target="_blank" rel="noopener noreferrer">
+                    <a
+                      href={trailerUrl(item.title, item.year)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => track("trailer_clicked", { title: item.title, year: item.year, page: "discover" })}
+                    >
                       <Play className="size-4" />
                       Trailer
                     </a>
