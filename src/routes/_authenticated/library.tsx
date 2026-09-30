@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useServerFn } from "@tanstack/react-start";
 import { Bookmark, Loader2, Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
+import { track } from "@/lib/analytics";
 import { AppShell } from "@/components/AppShell";
 import { MediaToggle, type MediaType, copyFor } from "@/components/MediaToggle";
 import { Poster } from "@/components/Poster";
@@ -118,6 +119,7 @@ function LibraryPage() {
     },
     onSuccess: (result) => {
       setImportOpen(false);
+      track("letterboxd_import_completed", { movies: result.movies, series: result.series, duplicates: result.duplicates, skipped: result.skipped });
       const parts = [];
       if (result.movies > 0) parts.push(`${result.movies} movies`);
       if (result.series > 0) parts.push(`${result.series} series`);
@@ -150,10 +152,14 @@ function LibraryPage() {
             mediaType={mediaType}
             open={addOpen}
             onOpenChange={setAddOpen}
-            onSearch={(query) => runSearch({ data: { query, mediaType } })}
+            onSearch={(query) => {
+              track("search", { query, media_type: mediaType, page: "library" });
+              return runSearch({ data: { query, mediaType } });
+            }}
             onAdd={async (movie) => {
               await runAdd({ data: { ...movie, mediaType } });
               setAddOpen(false);
+              track("film_added", { title: movie.title, year: movie.year, media_type: mediaType, source: "library" });
               toast.success(`${movie.title} added`);
               void queryClient.invalidateQueries({ queryKey: ["library"] });
             }}

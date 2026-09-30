@@ -10,6 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Poster } from "@/components/Poster";
 import { MediaToggle } from "@/components/MediaToggle";
+import { PickReactions } from "@/components/PickReactions";
+import { track } from "@/lib/analytics";
 
 export const Route = createFileRoute("/try")({
   head: () => ({
@@ -85,6 +87,7 @@ function TryPage() {
           }
           if (ctrl.signal.aborted) return;
           if (r && !r.failed) {
+            track("search", { query: q, media_type: mediaType, results: r.results.length, page: "try" });
             setResults(r.results);
             setSearchSlow(null);
             setSearched(true);
@@ -107,6 +110,7 @@ function TryPage() {
   function add(item: Item) {
     if (picked.length >= 10 || picked.some((p) => p.title === item.title && p.year === item.year)) return;
     setPicked([...picked, item]);
+    track("film_added", { title: item.title, year: item.year, media_type: mediaType, source: "try" });
     setQuery("");
     setResults([]);
     inputRef.current?.focus();
@@ -121,6 +125,7 @@ function TryPage() {
   async function fill(keys: string[], opts: { refine: RefineKey | null; exclude: string[] }) {
     const dropSlots = () => setSlate((s) => s.filter((x) => !keys.includes(x.key) || x.pick));
     setGenError(null);
+    track("picks_requested", { count: keys.length, refine: opts.refine, media_type: mediaType, favourites: picked.length });
     let res: Awaited<ReturnType<typeof getCandidates>>;
     try {
       res = await Promise.race([
@@ -151,12 +156,14 @@ function TryPage() {
     const shown = queue.map(label);
     setExcluded((x) => [...x, ...shown]);
     const exclude = [...opts.exclude, ...shown].slice(-160);
+    const resolved: DemoPick[] = [];
     await Promise.all(
       keys.map(async (key) => {
         while (queue.length) {
           const candidate = queue.shift()!;
           const pick = await resolveOne({ data: { mediaType, exclude, candidate } }).catch(() => null);
           if (pick) {
+            resolved.push(pick);
             setSlate((s) => s.map((x) => (x.key === key ? { key, pick } : x)));
             return;
           }
@@ -164,6 +171,11 @@ function TryPage() {
         setSlate((s) => s.filter((x) => x.key !== key));
       }),
     );
+    track("picks_shown", {
+      titles: resolved.map(label),
+      refine: opts.refine,
+      media_type: mediaType,
+    });
   }
 
   async function go() {
@@ -204,8 +216,9 @@ function TryPage() {
     }
   }
 
-  async function dismiss(slot: Slot) {
+  async function dismiss(slot: Slot, kind: "seen_it" | "not_for_me") {
     if (!slot.pick) return;
+    track(kind, { title: slot.pick.title, year: slot.pick.year, page: "try" });
     const [key] = newKeys(1);
     setSlate((s) => s.map((x) => (x.key === slot.key ? { key: key!, pick: null } : x)));
     const nextExcluded = [...excluded, label(slot.pick)];
@@ -445,16 +458,22 @@ function TryPage() {
                       {item.hook || item.overview}
                     </p>
                     <div className="mt-4 flex flex-wrap gap-2">
-                      <Button variant="secondary" size="sm" onClick={() => void dismiss(slot)}>
+                      <Button variant="secondary" size="sm" onClick={() => void dismiss(slot, "seen_it")}>
                         <Eye className="size-4" />
                         Seen it
                       </Button>
-                      <Button variant="ghost" size="sm" onClick={() => void dismiss(slot)}>
+                      <Button variant="ghost" size="sm" onClick={() => void dismiss(slot, "not_for_me")}>
                         <Ban className="size-4" />
                         Not for me
                       </Button>
+                      <PickReactions title={item.title} year={item.year} page="try" />
                       <Button asChild variant="ghost" size="sm">
-                        <a href={trailerUrl(item.title, item.year)} target="_blank" rel="noopener noreferrer">
+                        <a
+                          href={trailerUrl(item.title, item.year)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => track("trailer_clicked", { title: item.title, year: item.year, page: "try" })}
+                        >
                           <Play className="size-4" />
                           Trailer
                         </a>

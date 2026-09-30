@@ -2,6 +2,7 @@ import { useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { Clapperboard, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { track } from "@/lib/analytics";
 import { supabase } from "@/integrations/supabase/client";
 import { lovable } from "@/integrations/lovable/index";
 import { Button } from "@/components/ui/button";
@@ -41,6 +42,7 @@ function AuthPage() {
     setBusy(true);
     try {
       if (mode === "signup") {
+        track("signup_started", { method: "email" });
         const { data, error } = await supabase.auth.signUp({
           email,
           password,
@@ -65,6 +67,7 @@ function AuthPage() {
 
   async function handleGoogle() {
     setBusy(true);
+    track(mode === "signup" ? "signup_started" : "signin_started", { method: "google" });
     const result = await lovable.auth.signInWithOAuth("google", {
       redirect_uri: window.location.origin,
     });

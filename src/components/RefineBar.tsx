@@ -2,6 +2,7 @@ import { Loader2, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { REFINES, REFINE_KEYS, type RefineKey } from "@/lib/refine";
+import { track } from "@/lib/analytics";
 
 export function RefineBar({
   busy,
@@ -26,7 +27,10 @@ export function RefineBar({
           <button
             key={k}
             disabled={busy}
-            onClick={() => onRefine(k)}
+            onClick={() => {
+              track("refine_clicked", { chip: k, note: note.trim() || null });
+              onRefine(k);
+            }}
             className={`rounded-full border px-3 py-1.5 text-sm transition-colors disabled:opacity-50 ${
               active === k
                 ? "border-primary bg-secondary text-primary"
@@ -44,7 +48,10 @@ export function RefineBar({
         onChange={(e) => onNote(e.target.value)}
         placeholder="Anything else? (e.g. no subtitles, something to watch with my parents)"
       />
-      <Button className="mt-3" variant="secondary" disabled={busy} onClick={onMore}>
+      <Button className="mt-3" variant="secondary" disabled={busy} onClick={() => {
+          track("show_more");
+          onMore();
+        }}>
         {busy ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
         Show 3 more
       </Button>
