@@ -52,6 +52,7 @@ function DiscoverPage() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingSlots, setPendingSlots] = useState(0);
+  const [ratingFor, setRatingFor] = useState<string | null>(null);
 
   const [mediaType, setMediaType] = useState<MediaType>("movie");
   const copy = copyFor(mediaType);
@@ -102,15 +103,22 @@ function DiscoverPage() {
     }
   }
 
-  async function mark(id: string, kind: "seen" | "rejected") {
+  async function mark(id: string, kind: "seen" | "rejected", rating: number | null = null) {
     const it = items.find((r) => r.id === id);
-    track(kind === "seen" ? "seen_it" : "not_for_me", { title: it?.title, year: it?.year, page: "discover" });
+    track(kind === "seen" ? "seen_it" : "not_for_me", { title: it?.title, year: it?.year, page: "discover", rating });
+    setRatingFor(null);
     queryClient.setQueryData(["recommendations", mediaType], (old: typeof items | undefined) =>
       old?.filter((r) => r.id !== id),
     );
     setPendingSlots((n) => n + 1);
     try {
-      await sendMark({ data: { id, kind } });
+      await sendMark({ data: { id, kind, rating } });
+      if (kind === "seen") {
+        toast.success(
+          `${it?.title ?? "Added"} added to your library${rating ? ` · ${rating}/10` : ""}`,
+        );
+        void queryClient.invalidateQueries({ queryKey: ["library"] });
+      }
       await generate({
         data: { mood: mood.trim() || null, mediaType, note: note.trim() || null, count: 1, replaceNew: false, refine },
       });
@@ -237,7 +245,11 @@ function DiscoverPage() {
                     <Bookmark className="size-4" />
                     Save
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => void mark(item.id, "seen")}>
+                  <Button
+                    variant={ratingFor === item.id ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setRatingFor(ratingFor === item.id ? null : item.id)}
+                  >
                     <Eye className="size-4" />
                     Seen it
                   </Button>
@@ -258,6 +270,36 @@ function DiscoverPage() {
                     </a>
                   </Button>
                 </div>
+
+                {ratingFor === item.id && (
+                  <div className="mt-4 rounded-xl border border-border/70 bg-secondary/40 p-3">
+                    <p className="text-sm font-medium">How would you rate it?</p>
+                    <p className="text-xs text-muted-foreground">
+                      We’ll add it to your library and use your rating for future picks.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          aria-label={`Rate ${n} out of 10`}
+                          onClick={() => void mark(item.id, "seen", n)}
+                          className="size-8 rounded-md border border-border bg-card text-sm font-semibold transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground"
+                        >
+                          {n}
+                        </button>
+                      ))}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => void mark(item.id, "seen", null)}
+                      >
+                        Skip rating
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </li>
           ))}

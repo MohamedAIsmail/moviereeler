@@ -91,12 +91,18 @@ export const generateRecommendations = createServerFn({ method: "POST" })
 export const markPick = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((input: unknown) =>
-    z.object({ id: z.string().uuid(), kind: z.enum(["seen", "rejected"]) }).parse(input),
+    z
+      .object({
+        id: z.string().uuid(),
+        kind: z.enum(["seen", "rejected"]),
+        rating: z.number().min(0).max(10).nullable().optional(),
+      })
+      .parse(input),
   )
   .handler(async ({ data, context }) => {
     const { data: rec, error } = await context.supabase
       .from("recommendations")
-      .select("title, year, media_type")
+      .select("title, year, media_type, poster_url, imdb_id")
       .eq("id", data.id)
       .eq("user_id", context.userId)
       .maybeSingle();
@@ -112,6 +118,35 @@ export const markPick = createServerFn({ method: "POST" })
       },
       { onConflict: "user_id,media_type,title,year" },
     );
+    if (data.kind === "seen") {
+      // Log it in the user's library (with their rating) so it becomes a taste signal.
+      let q = context.supabase
+        .from("watched_movies")
+        .select("id")
+        .eq("user_id", context.userId)
+        .eq("media_type", rec.media_type)
+        .ilike("title", rec.title);
+      q = rec.year == null ? q.is("year", null) : q.eq("year", rec.year);
+      const { data: existing } = await q.limit(1).maybeSingle();
+      const rating = data.rating && data.rating > 0 ? data.rating : null;
+      if (existing) {
+        if (rating != null) {
+          await context.supabase.from("watched_movies").update({ rating }).eq("id", existing.id);
+        }
+      } else {
+        const { error: insErr } = await context.supabase.from("watched_movies").insert({
+          user_id: context.userId,
+          title: rec.title,
+          year: rec.year,
+          media_type: rec.media_type,
+          poster_url: rec.poster_url,
+          imdb_id: rec.imdb_id,
+          rating,
+          source: "discover",
+        });
+        if (insErr) throw new Error(insErr.message);
+      }
+    }
     await context.supabase
       .from("recommendations")
       .update({ status: "dismissed", feedback: data.kind === "rejected" ? -1 : null })
