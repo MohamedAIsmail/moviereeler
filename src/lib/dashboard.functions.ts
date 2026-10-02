@@ -139,16 +139,16 @@ export const getDashboard = createServerFn({ method: "GET" })
     const chips = new Map<string, number>();
     for (const e of inRange) {
       const p = e.properties ?? {};
-      if (e.event_name === "picks_shown" && Array.isArray(p.titles)) {
-        picksShown += p.titles.length;
-        for (const t of p.titles as string[]) recommended.set(t, (recommended.get(t) ?? 0) + 1);
+      if (e.event_name === "picks_shown" && Array.isArray(p["titles"])) {
+        picksShown += p["titles"].length;
+        for (const t of p["titles"] as string[]) recommended.set(t, (recommended.get(t) ?? 0) + 1);
       }
-      if (e.event_name === "film_added" && typeof p.title === "string") {
-        const k = p.year ? `${p.title} (${p.year})` : p.title;
+      if (e.event_name === "film_added" && typeof p["title"] === "string") {
+        const k = p["year"] ? `${p["title"]} (${p["year"]})` : p["title"];
         favourites.set(k, (favourites.get(k) ?? 0) + 1);
       }
-      if (e.event_name === "refine_clicked" && typeof p.chip === "string")
-        chips.set(p.chip, (chips.get(p.chip) ?? 0) + 1);
+      if (e.event_name === "refine_clicked" && typeof p["chip"] === "string")
+        chips.set(p["chip"], (chips.get(p["chip"]) ?? 0) + 1);
     }
     const up = count("thumbs_up");
     const down = count("thumbs_down");
@@ -166,7 +166,7 @@ export const getDashboard = createServerFn({ method: "GET" })
     const srcOf = new Map<string, string>();
     for (const e of inRange) {
       if (srcOf.has(e.visitor_id)) continue;
-      const s = (e.properties?.first_source as string | null) ?? null;
+      const s = (e.properties?.["first_source"] as string | null) ?? null;
       srcOf.set(e.visitor_id, s || "Direct / unknown");
     }
     const signupVids = new Set(inRange.filter((e) => e.event_name === "signup_completed").map((e) => e.visitor_id));
