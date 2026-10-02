@@ -270,6 +270,36 @@ function DiscoverPage() {
                     </a>
                   </Button>
                 </div>
+
+                {ratingFor === item.id && (
+                  <div className="mt-4 rounded-xl border border-border/70 bg-secondary/40 p-3">
+                    <p className="text-sm font-medium">How would you rate it?</p>
+                    <p className="text-xs text-muted-foreground">
+                      We’ll add it to your library and use your rating for future picks.
+                    </p>
+                    <div className="mt-3 flex flex-wrap gap-1.5">
+                      {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          aria-label={`Rate ${n} out of 10`}
+                          onClick={() => void mark(item.id, "seen", n)}
+                          className="size-8 rounded-md border border-border bg-card text-sm font-semibold transition-colors hover:border-primary hover:bg-primary hover:text-primary-foreground"
+                        >
+                          {n}
+                        </button>
+                      ))}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8"
+                        onClick={() => void mark(item.id, "seen", null)}
+                      >
+                        Skip rating
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </li>
           ))}
