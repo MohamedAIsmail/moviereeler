@@ -52,6 +52,7 @@ function DiscoverPage() {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [pendingSlots, setPendingSlots] = useState(0);
+  const [ratingFor, setRatingFor] = useState<string | null>(null);
 
   const [mediaType, setMediaType] = useState<MediaType>("movie");
   const copy = copyFor(mediaType);
@@ -102,15 +103,22 @@ function DiscoverPage() {
     }
   }
 
-  async function mark(id: string, kind: "seen" | "rejected") {
+  async function mark(id: string, kind: "seen" | "rejected", rating: number | null = null) {
     const it = items.find((r) => r.id === id);
-    track(kind === "seen" ? "seen_it" : "not_for_me", { title: it?.title, year: it?.year, page: "discover" });
+    track(kind === "seen" ? "seen_it" : "not_for_me", { title: it?.title, year: it?.year, page: "discover", rating });
+    setRatingFor(null);
     queryClient.setQueryData(["recommendations", mediaType], (old: typeof items | undefined) =>
       old?.filter((r) => r.id !== id),
     );
     setPendingSlots((n) => n + 1);
     try {
-      await sendMark({ data: { id, kind } });
+      await sendMark({ data: { id, kind, rating } });
+      if (kind === "seen") {
+        toast.success(
+          `${it?.title ?? "Added"} added to your library${rating ? ` · ${rating}/10` : ""}`,
+        );
+        void queryClient.invalidateQueries({ queryKey: ["library"] });
+      }
       await generate({
         data: { mood: mood.trim() || null, mediaType, note: note.trim() || null, count: 1, replaceNew: false, refine },
       });
@@ -237,7 +245,11 @@ function DiscoverPage() {
                     <Bookmark className="size-4" />
                     Save
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={() => void mark(item.id, "seen")}>
+                  <Button
+                    variant={ratingFor === item.id ? "secondary" : "ghost"}
+                    size="sm"
+                    onClick={() => setRatingFor(ratingFor === item.id ? null : item.id)}
+                  >
                     <Eye className="size-4" />
                     Seen it
                   </Button>
