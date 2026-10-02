@@ -51,7 +51,8 @@ function DiscoverPage() {
   const [refine, setRefine] = useState<RefineKey | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
-  const [pendingSlots, setPendingSlots] = useState(0);
+  const [pendingSlots] = useState(0);
+  const [replacing, setReplacing] = useState<Set<string>>(new Set());
   const [ratingFor, setRatingFor] = useState<string | null>(null);
 
   const [mediaType, setMediaType] = useState<MediaType>("movie");
@@ -107,10 +108,8 @@ function DiscoverPage() {
     const it = items.find((r) => r.id === id);
     track(kind === "seen" ? "seen_it" : "not_for_me", { title: it?.title, year: it?.year, page: "discover", rating });
     setRatingFor(null);
-    queryClient.setQueryData(["recommendations", mediaType], (old: typeof items | undefined) =>
-      old?.filter((r) => r.id !== id),
-    );
-    setPendingSlots((n) => n + 1);
+    const key = ["recommendations", mediaType];
+    setReplacing((s) => new Set(s).add(id));
     try {
       await sendMark({ data: { id, kind, rating } });
       if (kind === "seen") {
@@ -122,11 +121,27 @@ function DiscoverPage() {
       await generate({
         data: { mood: mood.trim() || null, mediaType, note: note.trim() || null, count: 1, replaceNew: false, refine },
       });
-      await invalidate();
+      const before = (queryClient.getQueryData(key) as typeof items | undefined) ?? [];
+      const beforeIds = new Set(before.map((r) => r.id));
+      const slot = before.findIndex((r) => r.id === id);
+      await queryClient.refetchQueries({ queryKey: key, exact: true });
+      queryClient.setQueryData(key, (fresh: typeof items | undefined) => {
+        if (!fresh) return fresh;
+        const added = fresh.find((r) => !beforeIds.has(r.id));
+        const rest = fresh.filter((r) => r.id !== id && r !== added);
+        if (added && slot >= 0) rest.splice(Math.min(slot, rest.length), 0, added);
+        else if (added) rest.push(added);
+        return rest;
+      });
     } catch (e) {
       toast.error((e as Error).message);
+      queryClient.setQueryData(key, (old: typeof items | undefined) => old?.filter((r) => r.id !== id));
     } finally {
-      setPendingSlots((n) => Math.max(0, n - 1));
+      setReplacing((s) => {
+        const n = new Set(s);
+        n.delete(id);
+        return n;
+      });
     }
   }
 
@@ -195,7 +210,21 @@ function DiscoverPage() {
         </p>
       ) : (
         <ul className="mt-8 space-y-4">
-          {items.filter((item) => item.poster_url || item.overview).map((item) => (
+          {items.filter((item) => item.poster_url || item.overview).map((item) => replacing.has(item.id) ? (
+            <li
+              key={item.id}
+              aria-busy="true"
+              className="flex animate-pulse gap-4 rounded-2xl border border-border/70 bg-card p-4 sm:gap-6 sm:p-5"
+            >
+              <div className="aspect-[2/3] w-24 shrink-0 rounded-lg bg-secondary sm:w-32" />
+              <div className="flex-1 space-y-3 pt-1">
+                <div className="h-5 w-1/2 rounded bg-secondary" />
+                <div className="h-3 w-1/4 rounded bg-secondary" />
+                <div className="h-4 w-full rounded bg-secondary" />
+                <div className="h-4 w-5/6 rounded bg-secondary" />
+              </div>
+            </li>
+          ) : (
             <li
               key={item.id}
               className="flex gap-4 rounded-2xl border border-border/70 bg-card p-4 transition-shadow hover:shadow-glow sm:gap-6 sm:p-5"
