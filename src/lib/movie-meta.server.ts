@@ -131,20 +131,19 @@ export async function searchMoviesDetailed(
   if (hit && hit.length) return { results: hit.slice(0, limit), failed: false };
 
   let anyAnswered = false;
-  const sources = [
-    () => cinemetaSearch(trimmed, type),
-    () => cinemetaSearch(trimmed, type),
-    () => imdbSuggestSearch(trimmed, type),
-  ];
-  for (const run of sources) {
-    const list = await run();
-    if (list) anyAnswered = true;
-    if (list && list.length) {
-      if (searchCache.size > 500) searchCache.clear();
-      searchCache.set(key, list);
-      return { results: list.slice(0, limit), failed: false };
-    }
-  }
+  const done = (list: MovieMeta[]) => {
+    if (searchCache.size > 500) searchCache.clear();
+    searchCache.set(key, list);
+    return { results: list.slice(0, limit), failed: false };
+  };
+  let list = await cinemetaSearch(trimmed, type);
+  // Retry Cinemeta only when it errored/timed out — an empty answer is a real "no match".
+  if (!list) list = await cinemetaSearch(trimmed, type);
+  if (list) anyAnswered = true;
+  if (list?.length) return done(list);
+  list = await imdbSuggestSearch(trimmed, type);
+  if (list) anyAnswered = true;
+  if (list?.length) return done(list);
   return { results: [], failed: !anyAnswered };
 }
 const searchCache = new Map<string, MovieMeta[]>();
@@ -326,10 +325,13 @@ export async function resolvePick(
 ): Promise<MovieMeta | null> {
   const year = pick.year ?? null;
   const yearOk = (m: MovieMeta) => !year || !m.year || Math.abs(m.year - year) <= 1;
+  const names = [pick.title, pick.originalTitle ?? ""].map(normalize).filter(Boolean);
+  const sameTitle = (m: MovieMeta) => names.includes(normalize(m.title));
 
+  // AI-supplied ids are sometimes wrong and point at a different film — trust one only if the title agrees.
   if (pick.imdbId && /^tt\d+$/.test(pick.imdbId)) {
     const meta = await getMetaById(pick.imdbId, type);
-    if (meta && (meta.posterUrl || meta.overview) && yearOk(meta)) return meta;
+    if (meta && (meta.posterUrl || meta.overview) && yearOk(meta) && sameTitle(meta)) return meta;
   }
 
   const stripped = pick.title.replace(/^(the|a|an)\s+/i, "").trim();
@@ -339,7 +341,8 @@ export async function resolvePick(
 
   for (const q of queries) {
     const results = await searchMovies(q, 10, type);
-    const match = results.find(yearOk);
+    const inYear = results.filter(yearOk);
+    const match = inYear.find(sameTitle) ?? inYear[0];
     if (!match) continue;
     if (!match.imdbId) return match;
     const full = await getMetaById(match.imdbId, type);

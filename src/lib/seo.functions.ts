@@ -101,11 +101,22 @@ async function assertAdmin(userId: string) {
   if (!(await isAdminUser(userId))) throw new Error("Forbidden");
 }
 
+/**
+ * Admin-checked service-role client. The seo_pages admin RLS policies call
+ * has_role(), which signed-in users can't execute, so admin reads/writes go
+ * through the service role after the server-side role check.
+ */
+async function adminDb(userId: string) {
+  await assertAdmin(userId);
+  const { supabaseAdmin } = await import("@/integrations/supabase/client.server");
+  return supabaseAdmin;
+}
+
 export const adminListSeoPages = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }) => {
-    await assertAdmin(context.userId);
-    const { data, error } = await context.supabase
+    const db = await adminDb(context.userId);
+    const { data, error } = await db
       .from("seo_pages")
       .select("*")
       .order("updated_at", { ascending: false })
@@ -127,30 +138,38 @@ export const adminCreateSeoDraft = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { imdbId: string }) => z.object({ imdbId: z.string().regex(/^tt\d+$/) }).parse(d))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    const db = await adminDb(context.userId);
     const { getMetaById } = await import("./movie-meta.server");
     const { generateSeoRecs, generateSeoCopy, slugify } = await import("./seo.server");
-    const src = await getMetaById(data.imdbId, "movie");
+    // Cheap checks first, so a duplicate or unknown film fails before any AI work.
+    const [src, { data: existing }] = await Promise.all([
+      getMetaById(data.imdbId, "movie"),
+      db.from("seo_pages").select("id").eq("imdb_id", data.imdbId).limit(1).maybeSingle(),
+    ]);
+    if (existing) throw new Error("A page for this film already exists.");
     if (!src?.title) throw new Error("Couldn't find that film in the catalog.");
-    const recs = await generateSeoRecs(src, 10);
-    if (recs.length < 8) throw new Error(`Only found ${recs.length} solid picks — try again.`);
-    const copy = await generateSeoCopy(src, recs.length);
 
     let slug = slugify(src.title);
-    const { data: clash } = await context.supabase.from("seo_pages").select("id, imdb_id").eq("slug", slug).maybeSingle();
-    if (clash && clash.imdb_id !== src.imdbId) slug = `${slug}-${src.year ?? "film"}`;
-    if (clash && clash.imdb_id === src.imdbId) throw new Error("A page for this film already exists.");
+    // The picks and the intro/meta copy don't depend on each other — generate them together.
+    const [recs, copy, { data: clash }] = await Promise.all([
+      generateSeoRecs(src, 10),
+      generateSeoCopy(src, 10),
+      db.from("seo_pages").select("id").eq("slug", slug).maybeSingle(),
+    ]);
+    if (recs.length < 8) throw new Error(`Only found ${recs.length} solid picks — try again.`);
+    if (clash || !slug) slug = [slug, src.year ?? data.imdbId].filter(Boolean).join("-");
 
-    const { data: row, error } = await context.supabase
+    const { data: row, error } = await db
       .from("seo_pages")
       .insert({
         slug,
         source_title: src.title,
         source_year: src.year,
-        imdb_id: src.imdbId,
+        imdb_id: src.imdbId ?? data.imdbId,
         source_poster: src.posterUrl,
         intro: copy.intro,
-        meta_title: copy.meta_title,
+        // The copy was written for 10 picks; keep the number in the title honest.
+        meta_title: copy.meta_title.replace(/^\d+(?= Movies Like)/, String(recs.length)),
         meta_description: copy.meta_description,
         recommendations: recs as unknown as import("@/integrations/supabase/types").Json,
         status: "draft",
@@ -186,9 +205,9 @@ export const adminSaveSeoPage = createServerFn({ method: "POST" })
       .parse(d),
   )
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
+    const db = await adminDb(context.userId);
     const { id, ...rest } = data;
-    const { data: row, error } = await context.supabase
+    const { data: row, error } = await db
       .from("seo_pages")
       .update({
         ...rest,
@@ -198,7 +217,9 @@ export const adminSaveSeoPage = createServerFn({ method: "POST" })
       .eq("id", id)
       .select("*")
       .single();
-    if (error) throw new Error(error.message);
+    if (error) {
+      throw new Error(error.code === "23505" ? "Another page already uses that web address." : error.message);
+    }
     return row as unknown as SeoPage;
   });
 
@@ -227,8 +248,8 @@ export const adminDeleteSeoPage = createServerFn({ method: "POST" })
   .middleware([requireSupabaseAuth])
   .inputValidator((d: { id: string }) => z.object({ id: z.string().uuid() }).parse(d))
   .handler(async ({ data, context }) => {
-    await assertAdmin(context.userId);
-    const { error } = await context.supabase.from("seo_pages").delete().eq("id", data.id);
+    const db = await adminDb(context.userId);
+    const { error } = await db.from("seo_pages").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });

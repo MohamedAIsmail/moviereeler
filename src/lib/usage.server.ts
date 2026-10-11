@@ -81,33 +81,28 @@ export async function enforceGeneration(who: {
   userId?: string | null;
   ipHash?: string | null;
 }): Promise<LimitResult> {
-  if (await isAdminUser(who.userId)) return { ok: true };
-
-  if (!looksLikeBrowser()) return { ok: false, code: "bot", message: MESSAGES.bot };
-
   const db = await admin();
   const column = who.userId ? "user_id" : "ip_hash";
   const value = who.userId ?? who.ipHash ?? "none";
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+
+  // One round trip for all three checks — this runs before every AI call.
+  const [isAdmin, { data: last }, { count }] = await Promise.all([
+    isAdminUser(who.userId),
+    db.from("ai_usage").select("created_at").eq(column, value).order("created_at", { ascending: false }).limit(1),
+    db.from("ai_usage").select("id", { count: "exact", head: true }).eq(column, value).gte("created_at", since),
+  ]);
+  if (isAdmin) return { ok: true };
+
+  if (!looksLikeBrowser()) return { ok: false, code: "bot", message: MESSAGES.bot };
 
   // Spacing check.
-  const { data: last } = await db
-    .from("ai_usage")
-    .select("created_at")
-    .eq(column, value)
-    .order("created_at", { ascending: false })
-    .limit(1);
   const lastAt = last?.[0]?.created_at ? Date.parse(last[0].created_at) : 0;
   if (lastAt && Date.now() - lastAt < MIN_INTERVAL_MS) {
     return { ok: false, code: "too_fast", message: MESSAGES.too_fast };
   }
 
   // Daily quota.
-  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
-  const { count } = await db
-    .from("ai_usage")
-    .select("id", { count: "exact", head: true })
-    .eq(column, value)
-    .gte("created_at", since);
   const limit = who.userId ? USER_DAILY_LIMIT : GUEST_DAILY_LIMIT;
   if ((count ?? 0) >= limit) {
     return { ok: false, code: "rate_limit", message: MESSAGES.rate_limit };

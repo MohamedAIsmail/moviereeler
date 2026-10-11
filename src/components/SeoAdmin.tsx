@@ -2,12 +2,13 @@ import { useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ExternalLink, Loader2, RefreshCw, Search, Trash2 } from "lucide-react";
+import { ExternalLink, Eye, Loader2, Pencil, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Poster } from "@/components/Poster";
+import { SeoPageBody } from "@/components/SeoPageBody";
 import {
   adminCreateSeoDraft,
   adminDeleteSeoPage,
@@ -98,7 +99,7 @@ export function SeoAdmin() {
           ))}
         </ul>
       )}
-      {creating && <p className="text-xs text-muted-foreground">This takes about 20–40 seconds.</p>}
+      {creating && <p className="text-xs text-muted-foreground">This takes about 15–30 seconds.</p>}
 
       {isLoading ? (
         <Loader2 className="size-5 animate-spin text-muted-foreground" />
@@ -143,6 +144,7 @@ function SeoEditor({ page, onClose }: { page: SeoPage; onClose: () => void }) {
   const [p, setP] = useState<SeoPage>(page);
   const [saving, setSaving] = useState(false);
   const [regenIdx, setRegenIdx] = useState<number | null>(null);
+  const [preview, setPreview] = useState(false);
 
   const set = <K extends keyof SeoPage>(k: K, v: SeoPage[K]) => setP((cur) => ({ ...cur, [k]: v }));
   const setRec = (i: number, k: "because" | "hook", v: string) =>
@@ -188,8 +190,12 @@ function SeoEditor({ page, onClose }: { page: SeoPage; onClose: () => void }) {
 
   async function remove() {
     if (!confirm("Delete this page permanently?")) return;
-    await del({ data: { id: p.id } });
-    onClose();
+    try {
+      await del({ data: { id: p.id } });
+      onClose();
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
   }
 
   return (
@@ -199,8 +205,12 @@ function SeoEditor({ page, onClose }: { page: SeoPage; onClose: () => void }) {
           ← All pages
         </Button>
         <div className="flex gap-2">
-          <Button variant="ghost" size="sm" onClick={remove}>
+          <Button variant="ghost" size="sm" onClick={remove} aria-label="Delete page">
             <Trash2 className="size-4" />
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => setPreview((v) => !v)}>
+            {preview ? <Pencil className="size-4" /> : <Eye className="size-4" />}
+            {preview ? "Edit" : "Preview"}
           </Button>
           <Button variant="secondary" size="sm" disabled={saving} onClick={() => persist("draft")}>
             {p.status === "published" ? "Unpublish" : "Save draft"}
@@ -212,47 +222,58 @@ function SeoEditor({ page, onClose }: { page: SeoPage; onClose: () => void }) {
         </div>
       </div>
 
-      <h3 className="font-display text-2xl font-bold">
-        Movies like {p.source_title} {p.source_year ? `(${p.source_year})` : ""}
-      </h3>
+      {preview ? (
+        <div className="overflow-hidden rounded-2xl border border-border/70 bg-background">
+          <p className="border-b border-border/60 px-5 py-2 text-xs text-muted-foreground">
+            Preview of your current edits{p.status === "published" ? "" : " — not live yet"}. “More like this” links appear on the live page.
+          </p>
+          <SeoPageBody page={p} related={[]} />
+        </div>
+      ) : (
+        <>
+          <h3 className="font-display text-2xl font-bold">
+            Movies like {p.source_title} {p.source_year ? `(${p.source_year})` : ""}
+          </h3>
 
-      <label className="block text-xs text-muted-foreground">
-        Web address: /movies-like/
-        <Input value={p.slug} onChange={(e) => set("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} className="mt-1" />
-      </label>
-      <label className="block text-xs text-muted-foreground">
-        Search title ({(p.meta_title ?? "").length} chars)
-        <Input value={p.meta_title ?? ""} onChange={(e) => set("meta_title", e.target.value)} className="mt-1" />
-      </label>
-      <label className="block text-xs text-muted-foreground">
-        Search description ({(p.meta_description ?? "").length} chars)
-        <Textarea value={p.meta_description ?? ""} onChange={(e) => set("meta_description", e.target.value)} className="mt-1" rows={2} />
-      </label>
-      <label className="block text-xs text-muted-foreground">
-        Intro
-        <Textarea value={p.intro} onChange={(e) => set("intro", e.target.value)} className="mt-1" rows={4} />
-      </label>
+          <label className="block text-xs text-muted-foreground">
+            Web address: /movies-like/
+            <Input value={p.slug} onChange={(e) => set("slug", e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))} className="mt-1" />
+          </label>
+          <label className="block text-xs text-muted-foreground">
+            Search title ({(p.meta_title ?? "").length} chars)
+            <Input value={p.meta_title ?? ""} onChange={(e) => set("meta_title", e.target.value)} className="mt-1" />
+          </label>
+          <label className="block text-xs text-muted-foreground">
+            Search description ({(p.meta_description ?? "").length} chars)
+            <Textarea value={p.meta_description ?? ""} onChange={(e) => set("meta_description", e.target.value)} className="mt-1" rows={2} />
+          </label>
+          <label className="block text-xs text-muted-foreground">
+            Intro
+            <Textarea value={p.intro} onChange={(e) => set("intro", e.target.value)} className="mt-1" rows={4} />
+          </label>
 
-      <ol className="space-y-4">
-        {p.recommendations.map((r, i) => (
-          <li key={`${r.title}-${i}`} className="flex gap-4 rounded-xl bg-secondary/50 p-3">
-            <Poster title={r.title} year={r.year} posterUrl={r.poster} className="w-20 shrink-0" />
-            <div className="min-w-0 flex-1 space-y-2">
-              <div className="flex items-center justify-between gap-2">
-                <p className="font-medium">
-                  {i + 1}. {r.title} <span className="text-muted-foreground">{r.year}</span>
-                </p>
-                <Button size="sm" variant="ghost" disabled={regenIdx !== null} onClick={() => regenerate(i)}>
-                  {regenIdx === i ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                  Replace
-                </Button>
-              </div>
-              <Textarea value={r.because} onChange={(e) => setRec(i, "because", e.target.value)} rows={2} aria-label="Because" />
-              <Textarea value={r.hook} onChange={(e) => setRec(i, "hook", e.target.value)} rows={2} aria-label="Hook" />
-            </div>
-          </li>
-        ))}
-      </ol>
+          <ol className="space-y-4">
+            {p.recommendations.map((r, i) => (
+              <li key={`${r.title}-${i}`} className="flex gap-4 rounded-xl bg-secondary/50 p-3">
+                <Poster title={r.title} year={r.year} posterUrl={r.poster} className="w-20 shrink-0" />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-medium">
+                      {i + 1}. {r.title} <span className="text-muted-foreground">{r.year}</span>
+                    </p>
+                    <Button size="sm" variant="ghost" disabled={regenIdx !== null} onClick={() => regenerate(i)}>
+                      {regenIdx === i ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                      Replace
+                    </Button>
+                  </div>
+                  <Textarea value={r.because} onChange={(e) => setRec(i, "because", e.target.value)} rows={2} aria-label="Because" />
+                  <Textarea value={r.hook} onChange={(e) => setRec(i, "hook", e.target.value)} rows={2} aria-label="Hook" />
+                </div>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
     </div>
   );
 }

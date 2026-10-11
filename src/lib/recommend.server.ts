@@ -174,7 +174,7 @@ export async function generateResolvedPicks(
     let cursor = 0;
     const resolved: (ResolvedPick | null)[] = new Array(candidates.length).fill(null);
     await Promise.all(
-      Array.from({ length: Math.min(6, candidates.length) }, async () => {
+      Array.from({ length: Math.min(12, candidates.length) }, async () => {
         while (cursor < candidates.length) {
           const i = cursor++;
           const s = candidates[i]!;
