@@ -5,7 +5,7 @@ import { Ban, Check, Clapperboard, Eye, Loader2, Play, Plus, Search, Sparkles, X
 import { RefineBar } from "@/components/RefineBar";
 import { trailerUrl, type RefineKey } from "@/lib/refine";
 import { AlertCircle } from "lucide-react";
-import { demoCandidates, demoResolve, demoSearch, type DemoPick } from "@/lib/demo.functions";
+import { demoCandidates, demoLookup, demoResolve, demoSearch, type DemoPick } from "@/lib/demo.functions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Poster } from "@/components/Poster";
@@ -14,6 +14,8 @@ import { PickReactions } from "@/components/PickReactions";
 import { track } from "@/lib/analytics";
 
 export const Route = createFileRoute("/try")({
+  validateSearch: (s: Record<string, unknown>): { add?: string } =>
+    typeof s.add === "string" && /^tt\d{5,10}$/.test(s.add) ? { add: s.add } : {},
   head: () => ({
     meta: [
       { title: "Try Reeler — Get 3 picks without signing up" },
@@ -63,6 +65,25 @@ function TryPage() {
   const retryRef = useRef<null | (() => void)>(null);
 
   const noun = mediaType === "series" ? "series" : "movies";
+
+  const { add: addId } = Route.useSearch();
+  const lookupFn = useServerFn(demoLookup);
+  useEffect(() => {
+    if (!addId) return;
+    let live = true;
+    lookupFn({ data: { imdbId: addId } })
+      .then((m) => {
+        if (!live || !m) return;
+        setMediaType("movie");
+        setPicked((cur) => (cur.some((p) => p.title === m.title && p.year === m.year) ? cur : [m, ...cur].slice(0, 10)));
+        track("film_added", { title: m.title, year: m.year, media_type: "movie", source: "seo_prefill" });
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [addId]);
 
   // Debounced search (300ms); outdated requests are aborted.
   useEffect(() => {

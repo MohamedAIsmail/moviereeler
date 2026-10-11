@@ -13,12 +13,15 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/route'
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TryRouteImport } from './routes/try'
 import { Route as AuthenticatedAccountRouteImport } from './routes/_authenticated/account'
 import { Route as AuthenticatedAdminRouteImport } from './routes/_authenticated/admin'
 import { Route as AuthenticatedDiscoverRouteImport } from './routes/_authenticated/discover'
 import { Route as AuthenticatedLibraryRouteImport } from './routes/_authenticated/library'
+import { Route as MoviesLikeIndexRouteImport } from './routes/movies-like.index'
+import { Route as MoviesLikeSlugRouteImport } from './routes/movies-like.$slug'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -37,6 +40,11 @@ const AuthRoute = AuthRouteImport.update({
 const PrivacyRoute = PrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SitemapDotxmlRoute = SitemapDotxmlRouteImport.update({
+  id: '/sitemap.xml',
+  path: '/sitemap.xml',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TermsRoute = TermsRouteImport.update({
@@ -69,28 +77,44 @@ const AuthenticatedLibraryRoute = AuthenticatedLibraryRouteImport.update({
   path: '/library',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
+const MoviesLikeIndexRoute = MoviesLikeIndexRouteImport.update({
+  id: '/movies-like/',
+  path: '/movies-like/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MoviesLikeSlugRoute = MoviesLikeSlugRouteImport.update({
+  id: '/movies-like/$slug',
+  path: '/movies-like/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/try': typeof TryRoute
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/discover': typeof AuthenticatedDiscoverRoute
   '/library': typeof AuthenticatedLibraryRoute
+  '/movies-like/$slug': typeof MoviesLikeSlugRoute
+  '/movies-like/': typeof MoviesLikeIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/auth': typeof AuthRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/try': typeof TryRoute
   '/account': typeof AuthenticatedAccountRoute
   '/admin': typeof AuthenticatedAdminRoute
   '/discover': typeof AuthenticatedDiscoverRoute
   '/library': typeof AuthenticatedLibraryRoute
+  '/movies-like/$slug': typeof MoviesLikeSlugRoute
+  '/movies-like': typeof MoviesLikeIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,12 +122,15 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteRouteWithChildren
   '/auth': typeof AuthRoute
   '/privacy': typeof PrivacyRoute
+  '/sitemap.xml': typeof SitemapDotxmlRoute
   '/terms': typeof TermsRoute
   '/try': typeof TryRoute
   '/_authenticated/account': typeof AuthenticatedAccountRoute
   '/_authenticated/admin': typeof AuthenticatedAdminRoute
   '/_authenticated/discover': typeof AuthenticatedDiscoverRoute
   '/_authenticated/library': typeof AuthenticatedLibraryRoute
+  '/movies-like/$slug': typeof MoviesLikeSlugRoute
+  '/movies-like/': typeof MoviesLikeIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,35 +138,44 @@ export interface FileRouteTypes {
     | '/'
     | '/auth'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/try'
     | '/account'
     | '/admin'
     | '/discover'
     | '/library'
+    | '/movies-like/$slug'
+    | '/movies-like/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/auth'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/try'
     | '/account'
     | '/admin'
     | '/discover'
     | '/library'
+    | '/movies-like/$slug'
+    | '/movies-like'
   id:
     | '__root__'
     | '/'
     | '/_authenticated'
     | '/auth'
     | '/privacy'
+    | '/sitemap.xml'
     | '/terms'
     | '/try'
     | '/_authenticated/account'
     | '/_authenticated/admin'
     | '/_authenticated/discover'
     | '/_authenticated/library'
+    | '/movies-like/$slug'
+    | '/movies-like/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -147,8 +183,11 @@ export interface RootRouteChildren {
   AuthenticatedRouteRoute: typeof AuthenticatedRouteRouteWithChildren
   AuthRoute: typeof AuthRoute
   PrivacyRoute: typeof PrivacyRoute
+  SitemapDotxmlRoute: typeof SitemapDotxmlRoute
   TermsRoute: typeof TermsRoute
   TryRoute: typeof TryRoute
+  MoviesLikeSlugRoute: typeof MoviesLikeSlugRoute
+  MoviesLikeIndexRoute: typeof MoviesLikeIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -179,6 +218,13 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/privacy'
       preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/sitemap.xml': {
+      id: '/sitemap.xml'
+      path: '/sitemap.xml'
+      fullPath: '/sitemap.xml'
+      preLoaderRoute: typeof SitemapDotxmlRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/terms': {
@@ -223,6 +269,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedLibraryRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/movies-like/': {
+      id: '/movies-like/'
+      path: '/movies-like'
+      fullPath: '/movies-like/'
+      preLoaderRoute: typeof MoviesLikeIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/movies-like/$slug': {
+      id: '/movies-like/$slug'
+      path: '/movies-like/$slug'
+      fullPath: '/movies-like/$slug'
+      preLoaderRoute: typeof MoviesLikeSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -248,8 +308,11 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRouteRoute: AuthenticatedRouteRouteWithChildren,
   AuthRoute: AuthRoute,
   PrivacyRoute: PrivacyRoute,
+  SitemapDotxmlRoute: SitemapDotxmlRoute,
   TermsRoute: TermsRoute,
   TryRoute: TryRoute,
+  MoviesLikeSlugRoute: MoviesLikeSlugRoute,
+  MoviesLikeIndexRoute: MoviesLikeIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
