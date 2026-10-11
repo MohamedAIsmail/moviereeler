@@ -15,7 +15,7 @@ import { track } from "@/lib/analytics";
 
 export const Route = createFileRoute("/try")({
   validateSearch: (s: Record<string, unknown>): { add?: string } =>
-    typeof s.add === "string" && /^tt\d{5,10}$/.test(s.add) ? { add: s.add } : {},
+    typeof s['add'] === "string" && /^tt\d{5,10}$/.test(s['add']) ? { add: s['add'] } : {},
   head: () => ({
     meta: [
       { title: "Try Reeler — Get 3 picks without signing up" },

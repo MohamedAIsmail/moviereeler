@@ -152,7 +152,7 @@ export const adminCreateSeoDraft = createServerFn({ method: "POST" })
         intro: copy.intro,
         meta_title: copy.meta_title,
         meta_description: copy.meta_description,
-        recommendations: recs as unknown as Database["public"]["Tables"]["seo_pages"]["Insert"]["recommendations"],
+        recommendations: recs as unknown as import("@/integrations/supabase/types").Json,
         status: "draft",
       })
       .select("*")
@@ -192,7 +192,7 @@ export const adminSaveSeoPage = createServerFn({ method: "POST" })
       .from("seo_pages")
       .update({
         ...rest,
-        recommendations: rest.recommendations as unknown as Database["public"]["Tables"]["seo_pages"]["Update"]["recommendations"],
+        recommendations: rest.recommendations as unknown as import("@/integrations/supabase/types").Json,
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
