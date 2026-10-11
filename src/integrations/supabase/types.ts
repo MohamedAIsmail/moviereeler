@@ -191,6 +191,54 @@ export type Database = {
         }
         Relationships: []
       }
+      seo_pages: {
+        Row: {
+          created_at: string
+          id: string
+          imdb_id: string | null
+          intro: string
+          meta_description: string | null
+          meta_title: string | null
+          recommendations: Json
+          slug: string
+          source_poster: string | null
+          source_title: string
+          source_year: number | null
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          imdb_id?: string | null
+          intro?: string
+          meta_description?: string | null
+          meta_title?: string | null
+          recommendations?: Json
+          slug: string
+          source_poster?: string | null
+          source_title: string
+          source_year?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          imdb_id?: string | null
+          intro?: string
+          meta_description?: string | null
+          meta_title?: string | null
+          recommendations?: Json
+          slug?: string
+          source_poster?: string | null
+          source_title?: string
+          source_year?: number | null
+          status?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       usage_alerts: {
         Row: {
           alert_date: string
