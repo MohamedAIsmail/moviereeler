@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Loader2 } from "lucide-react";
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { AppShell } from "@/components/AppShell";
+import { SeoAdmin } from "@/components/SeoAdmin";
 import { Input } from "@/components/ui/input";
 import { checkAdmin, getDashboard } from "@/lib/dashboard.functions";
 import { REFINES, type RefineKey } from "@/lib/refine";
@@ -226,6 +227,10 @@ function AdminPage() {
             </div>
           </>
         )}
+
+        <Card title="SEO pages">
+          <SeoAdmin />
+        </Card>
       </div>
     </AppShell>
   );
