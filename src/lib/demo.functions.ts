@@ -174,3 +174,13 @@ export const demoResolve = createServerFn({ method: "POST" })
       hook: c.hook,
     };
   });
+
+/** Look up one film by IMDb id (used by /try?add=tt…). */
+export const demoLookup = createServerFn({ method: "GET" })
+  .inputValidator((d: { imdbId: string }) => z.object({ imdbId: z.string().regex(/^tt\d{5,10}$/) }).parse(d))
+  .handler(async ({ data }) => {
+    const { getMetaById } = await import("./movie-meta.server");
+    const m = await getMetaById(data.imdbId, "movie");
+    if (!m?.title) return null;
+    return { title: m.title, year: m.year, posterUrl: m.posterUrl };
+  });
